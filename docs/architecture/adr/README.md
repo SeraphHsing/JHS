@@ -1,8 +1,8 @@
 # JHS 6.5 Architecture Decision Records
 
-本目录记录 v6.5 已冻结的架构决策。实施中只允许补充已定义决策的实现细节；改变决策须新增 superseding ADR。
+本目录保留 v6.5 已冻结的架构决策历史，7.0 `develop` 沿用这些边界与兼容约束。实施中只允许补充已定义决策的实现细节；改变决策须新增 superseding ADR，并明确替代的旧决策，不覆盖历史结论。
 
-能力与路由基线见 [Feature Matrix](../feature-matrix.md)，代码职责边界见 [Ownership](../ownership.md)。
+当前 7.0 能力与路由见 [Feature Matrix](../feature-matrix.md)，代码职责边界见 [Ownership](../ownership.md)。main / develop 的构建与验证差异见 [开发与发布说明](../../development.md)。
 
 1. [模块边界与依赖反转](001-module-boundaries.md)
 2. [Feature 与 Contribution](002-feature-contribution.md)

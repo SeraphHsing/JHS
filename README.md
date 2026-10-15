@@ -15,7 +15,7 @@ JAV 浏览、收藏与信息增强脚本
 
 </div>
 
-JHS 将作品状态、演员收藏、新作追踪、外部检索、媒体预览、字幕搜索、云盘离线和数据备份整合到站点页面中。脚本以插件方式按页面加载，并针对桌面端和移动端提供对应交互。
+JHS 将作品状态、演员收藏、新作追踪、外部检索、媒体预览、字幕搜索、云盘离线和数据备份整合到站点页面中。脚本按站点和页面启用所需功能，并针对桌面端和移动端提供对应交互。
 
 > 本项目仅提供网页信息整理与效率增强能力。请遵守所在地法律、目标网站条款及第三方服务规则，并仅处理你有权访问的内容。
 
@@ -43,7 +43,7 @@ JHS 将作品状态、演员收藏、新作追踪、外部检索、媒体预览�
 | 图片与视频 | 多截图源顺序回退、分源缓存、封面查看、悬浮大图和预览视频 |
 | 字幕与翻译 | SubtitleCat 字幕搜索、标题翻译和相关快捷入口 |
 | 数据工具 | 本地/WebDAV 备份与恢复、迁移快照、数据体检、操作撤销和意外中断后的状态恢复；备份不携带安装凭证 |
-| 统计与诊断 | 全库只读概览、当前页屏蔽项入口、6.4.0 起的 7/30 天活动趋势、日志覆盖范围、插件启动和外部请求诊断 |
+| 统计与诊断 | 全库只读概览、当前页屏蔽项入口、6.4.0 起的 7/30 天活动趋势、日志覆盖范围、功能启动和外部请求诊断 |
 
 ## 支持范围
 
@@ -75,7 +75,7 @@ JHS 将作品状态、演员收藏、新作追踪、外部检索、媒体预览�
 
 ### 3. 打开支持的站点
 
-访问 JavDB 或 JavBus。脚本会根据站点和页面类型自动注册所需插件；可从页面中的 JHS 设置入口调整功能、任务间隔、显示方式和外部站点地址。
+访问 JavDB 或 JavBus。脚本会根据站点和页面类型自动启用所需功能；可从页面中的 JHS 设置入口调整功能、任务间隔、显示方式和外部站点地址。
 
 ## 推荐使用流程
 
@@ -102,6 +102,8 @@ JHS 将作品状态、演员收藏、新作追踪、外部检索、媒体预览�
 
 ## 项目结构
 
+以下是 `develop` 的 7.0 源码结构；`main` 的正式 6.5.1 仍保留插件执行兼容路径。
+
 ```text
 src/
 ├─ main.js                 # UserScript 元数据与启动入口
@@ -113,7 +115,8 @@ src/
 ├─ integrations/           # 第三方来源的请求与解析
 ├─ features/               # 详情、列表批量操作、历史与统计等业务模块
 ├─ ui/                     # 界面组件、详情分区与交互
-└─ plugins/                # 按业务域组织的插件与兼容入口
+├─ compat/                 # 旧名称查询与功能适配接口
+└─ plugins/                # 保留的设置、新作品等 UI 实现与兼容入口
 scripts/                   # 构建、版本发布契约、源码检查和回归门禁
 tests/                     # Vitest 单元测试
 └─ browser/                # 浏览器、视觉与启动性能回归
@@ -126,12 +129,12 @@ docs/sleazyfork.zh-CN.md    # Sleazy Fork 中文介绍源文件
 src/main.js
   └─ bootstrapJhs
       ├─ 识别站点与页面，组装服务和适配器
-      ├─ 加载设置、迁移凭证，激活对应功能
+      ├─ 加载设置、迁移凭证，注册 Feature / Contribution 与兼容查询入口
       ├─ 迁移业务数据，恢复未完成的状态事务
-      └─ 注入样式，由 PluginManager 执行插件任务
+      └─ 注入样式，由 FeatureRuntime 激活功能并管理生命周期
 ```
 
-6.5 使用 ES 模块依赖和统一功能运行时。现有插件仍继承 `BasePlugin`，保留 `getBean()` 等兼容入口；作品状态由 `StateService` 协调写入。构建器从 `src/main.js` 解析模块依赖，使用 esbuild 生成经过压缩的 IIFE UserScript，可读源码保留在 `src/`。
+7.0 使用 Feature manifest 声明依赖、站点、路由和启动时机，Contribution 保留旧功能的独立启停粒度。`CompatibilityBeanRegistry` 提供旧 `pluginManager.getBean()` 等查询接口，业务执行由 FeatureRuntime 负责；作品状态由 `StateService` 协调写入。构建器从 `src/main.js` 解析 ES 模块依赖，使用 esbuild 生成经过压缩的 IIFE UserScript，可读源码保留在 `src/`。职责和能力边界见 [Ownership](docs/architecture/ownership.md) 与 [Feature Matrix](docs/architecture/feature-matrix.md)。
 
 ## 本地开发
 
@@ -141,6 +144,8 @@ src/main.js
 - `develop`：最新 7.0 源码、修复和回归测试，作为开发版本持续验证。
 
 日常开发在 `develop` 上进行，功能分支合入 `develop`；正式发布前完成验证，再通过 PR 合入 `main`。`main` 上的热修复须同步到 `develop`，沿用现有 24 小时同步规则。
+
+分支、构建和验收操作见 [开发与发布说明](docs/development.md)，修改约束见 [贡献指南](CONTRIBUTING.md)。
 
 基础测试与构建支持 Node.js 20；完整开发和浏览器回归使用 **Node.js 22 或更高版本**。
 
@@ -161,7 +166,7 @@ npm run check
 | `npm run test` | 运行 Vitest 单元测试 |
 | `npm run build` | 在 `develop` 构建 `dist/dev/JHS-7.0.dev.user.js` |
 | `npm run build:dev` | 构建同一 7.0 开发版本 |
-| `npm run build:release` | 构建正式产物，仅用于正式发布准备 |
+| `npm run build:release` | 显式生成根目录及 `dist/JHS.user.js`，仅用于获授权的正式发布准备 |
 | `npm run check` | 执行单元测试、构建、类型/架构/集成检查、性能预算、发布契约和 UI 审计 |
 | `npm run check:browser` | 运行启动性能与浏览器功能回归 |
 | `npm run check:visual` | 检查桌面和移动端截图差异 |
@@ -173,14 +178,16 @@ npm run check
 ```bash
 cd tests/browser
 npm ci
-npx playwright install chromium
+npx playwright install chromium firefox
 cd ../..
 npm run check:release
 ```
 
 本地功能回归目前检查 Windows 已安装的 Edge，可用 `JHS_BROWSER_CHANNEL=chrome` 选择已安装的 Chrome；视觉回归使用 Playwright Chromium。GitHub Actions 在 Ubuntu 上使用临时安装的 Chromium。
 
-提交版本变更时，需同步维护 `package.json`、`package-lock.json`、`src/main.js`、`CHANGELOG.md` 和根目录 `JHS.user.js`。`npm run check` 会验证稳定版本格式、版本一致性和发布说明。
+`develop` 另有 Firefox 控件项目，只运行控件状态规格；完整运行前需按 [开发与发布说明](docs/development.md) 准备对应浏览器。`check:browser` 先运行启动性能，再运行功能；启动失败会阻断后续功能检查。需要单独排查功能时可运行 `npm --prefix tests/browser run test:functional`，完整门禁仍要求启动性能通过。
+
+普通 `develop` 修改记录在 `Unreleased`，使用 Dev 构建，保留稳定版本元数据和正式产物。正式版本变更才同步维护 `package.json`、`package-lock.json`、`src/main.js`、`CHANGELOG.md` 和根目录 `JHS.user.js`，并确认根目录与 `dist/JHS.user.js` 字节一致。`npm run check` 验证稳定版本格式、版本一致性和发布说明，但在 `develop` 不重新生成正式产物。
 
 用户可见功能或版本变化时，同时更新本页和 [Sleazy Fork 中文介绍](docs/sleazyfork.zh-CN.md)。商店介绍以该文件为源，通过 [Raw 地址](https://raw.githubusercontent.com/Teamper/JHS/main/docs/sleazyfork.zh-CN.md) 同步。
 
@@ -190,23 +197,25 @@ npm run check:release
 
 - 单元测试、数据迁移、备份兼容、凭证、状态恢复和撤销回归。
 - 类型检查、架构边界、第三方集成、产物大小与性能预算。
-- 源码和产物语法、版本一致性、插件注册、主题对比度及键盘/ARIA 审计。
+- 源码和产物语法、版本一致性、Feature / Contribution 归属、主题对比度及键盘/ARIA 审计。
 - 固定页面样本上的浏览器交互、启动性能和桌面/移动端视觉回归。
 
-CI 还会重新构建并检查根目录 `JHS.user.js` 是否与已提交文件一致。自动测试使用固定页面样本和隔离的第三方服务，不会提交真实云盘任务。
+`main` CI 重新构建并检查根目录 `JHS.user.js` 是否与已提交文件一致；`develop` CI 构建 Dev 产物，并检查正式产物未被改写。自动测试使用固定页面样本和隔离的第三方服务，不会提交真实云盘任务。fixture 通过不代表已安装脚本、登录实站或真实设备验收通过。
 
-可在浏览器控制台查看启动诊断：
+安装 7.0 Dev 后，可在浏览器控制台查看功能启动诊断：
 
 ```js
-pluginManager.getStartupReport()
-pluginManager.getTimings().sort((a, b) => b.elapsed - a.elapsed)
+const diagnostics = pluginManager.diagnostics.exportSnapshot();
+diagnostics.activeFeatures;
+diagnostics.activeContributions;
+Object.entries(diagnostics.startupTimings).sort((a, b) => b[1] - a[1]);
 ```
 
-`readyMs` 表示脚本开始执行到即时插件完成的耗时，不包含 `@require` 资源下载和浏览器解析时间；`pending-idle` 表示任务已离开首屏关键路径，正在等待浏览器空闲时段执行。
+`startupTimings` 记录各 Feature 激活耗时；idle Feature 在首屏就绪后调度。完整启动性能由浏览器规格按固定样本测量，不包含 `@require` 下载和浏览器解析时间。7.0 的旧 `getStartupReport()` / `getTimings()` 仅保留兼容返回值，不用于评估实际启动性能。
 
 ## 发布方式
 
-- `main` / `develop` push，以及目标为这两个分支的 PR，均执行 Node 20 兼容检查、Node 22 完整检查、浏览器/视觉回归及构建产物同步检查。
+- `main` / `develop` push，以及目标为这两个分支的 PR，均执行 Node 20 兼容检查、Node 22 完整检查、浏览器/视觉回归及对应分支的产物检查。
 - `develop` push 只运行开发检查，不创建正式版本标签或 Release。
 - `package.json` 的稳定版 `version` 是正式发布信号；`main` 检测到版本严格递增后，CI 自动验证版本契约、创建 annotated `vX.Y.Z` 标签、提取 CHANGELOG 说明并发布 `JHS.user.js`。
 - 未修改版本号的提交不会创建 Release；版本回退、指向其他提交的同名标签以及已有 Release 均会阻止发布，历史版本和资产不会被覆盖。
