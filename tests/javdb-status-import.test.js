@@ -34,8 +34,8 @@ afterEach(() => {
 
 describe("JavDB status imports", () => {
     it.each([
-        ["https://javdb.com/want_watch_videos", "favorite", { favorite: true }, "是否将想看的影片导入到 JHS 收藏？"],
-        ["https://javdb.com/watched_videos", "watched", { watched: true }, "是否将看过的影片导入到 JHS 已观看？"],
+        ["https://javdb.com/want_watch_videos", "favorite", { favorite: true }, "将想看的影片导入 JHS 收藏？"],
+        ["https://javdb.com/watched_videos", "watched", { watched: true }, "将看过的影片导入 JHS 已观看？"],
     ])("mounts and imports the matching state on %s", async (href, flag, expectedPatch, prompt) => {
         const { controller, scope, patch, confirm, loadingHandle, settings } = createHarness();
         controller.href = href;
@@ -43,7 +43,7 @@ describe("JavDB status imports", () => {
         const button = document.querySelector("#wantWatchBtn");
         expect(button?.textContent).toBe("导入至 JHS");
         button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-        expect(confirm).toHaveBeenCalledWith(expect.any(MouseEvent), expect.stringContaining(prompt), expect.any(Function));
+        expect(confirm).toHaveBeenCalledWith(expect.any(MouseEvent), expect.stringContaining(prompt), expect.any(Function), { confirmText: "导入" });
         await vi.waitFor(() => expect(settings.ok).toHaveBeenCalledOnce());
 
         expect(patch).toHaveBeenCalledWith("ABC-1", expectedPatch, {
@@ -95,7 +95,7 @@ describe("JavDB status imports", () => {
         const next = createHarness('<h3>我的影片</h3><div class="movie-list"></div><a class="pagination-next" href="/p2"></a>');
         next.request.mockRejectedValueOnce(new Error("page failed"));
         await next.controller.importMovies("watched");
-        expect(next.settings.error).toHaveBeenCalledWith("导入失败：page failed");
+        expect(next.settings.error).toHaveBeenCalledWith("影片导入失败，请重试");
         expect(next.diagnostics.recordError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("page failed") }));
     });
 });

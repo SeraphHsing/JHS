@@ -7,3 +7,4 @@
 - 包元数据：https://cdn.jsdelivr.net/npm/layui-layer@1.0.9/package.json
 - npm 包声明许可证：`ISC`；发布包未包含独立 LICENSE 文件。
 - 保留分发文件原始内容及头部说明；本地副本避免回归测试依赖外网或升级到不同渲染实现。
+- CSS 来源：https://cdn.jsdelivr.net/npm/layui-layer@1.0.9/layer.css（同版本，保留原文）

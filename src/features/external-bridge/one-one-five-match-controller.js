@@ -1,5 +1,7 @@
 // @ts-check
 
+import { PRODUCT_NAMES } from "../../core/product-names.js";
+
 import { escapeHtml, normalizeCarNum } from "../../core/constants.js";
 import { mapLimit, parseBooleanSetting } from "../../core/feature-helpers.js";
 import { LifecycleScope } from "../../core/lifecycle-scope.js";
@@ -110,7 +112,7 @@ export class OneOneFiveMatchController {
         const block = this.document.createElement("div");
         block.className = "panel-block jhs-115-match";
         const label = this.document.createElement("strong");
-        label.textContent = "115匹配：";
+        label.textContent = `${PRODUCT_NAMES.one115} 匹配：`;
         block.append(label, this.document.createTextNode("匹配中"));
         summary.append(block);
         try {
@@ -132,11 +134,11 @@ export class OneOneFiveMatchController {
                     link.href = url;
                     link.target = "_blank";
                     link.rel = "noopener noreferrer";
-                    link.textContent = `${match.name} (${format115Size(match.size)})`;
+                    link.textContent = `${match.name}（${format115Size(match.size)}）`;
                     row.append(link);
                 } else {
                     const unavailable = this.document.createElement("span");
-                    unavailable.textContent = `${match.name} (${format115Size(match.size)}) · 不可播放`;
+                    unavailable.textContent = `${match.name}（${format115Size(match.size)}） · 不可播放`;
                     row.append(unavailable);
                 }
                 if (match.fileId) row.append(this.createRenameButton(match, carNum));
@@ -144,7 +146,7 @@ export class OneOneFiveMatchController {
             }
         } catch (error) {
             if (!this.isCurrent(scope)) return;
-            block.replaceChildren(label, this.document.createTextNode("未登录或请求失败 "));
+            block.replaceChildren(label, this.document.createTextNode("匹配失败，请登录后重试 "));
             const login = this.document.createElement("a");
             login.className = "jhs-btn jhs-btn--ghost";
             login.href = this.offline.getIntegrationHomeUrl("one115");
@@ -263,7 +265,7 @@ export class OneOneFiveMatchController {
             const url = this.safePlayUrl(match);
             return url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(match.name)}</a>` : `<span>${escapeHtml(match.name)} · 不可播放</span>`;
         }).join("<br>");
-        this.dialog.open({ type: 1, title: `${carNum} 115匹配`, content: `<div class="jhs-dialog-content">${links}</div>`, area: ["560px", "auto"] });
+        this.dialog.open({ type: 1, title: `${carNum} ${PRODUCT_NAMES.one115} 匹配`, content: `<div class="jhs-dialog-content">${links}</div>`, area: ["560px", "auto"] });
     }
 
     /** @param {any} match @param {string} carNum */
@@ -279,18 +281,18 @@ export class OneOneFiveMatchController {
     /** @param {MouseEvent} event @param {any} match @param {string} carNum */
     renameWithPreview(event, match, carNum) {
         const nextName = preview115Rename(match.name, carNum, { uppercase: true, keepSuffix: true });
-        this.ui.confirm({ clientX: event.clientX, clientY: event.clientY + 80 }, `确认重命名？<br>${escapeHtml(match.name)}<br>→ ${escapeHtml(nextName)}`, async () => {
+        this.ui.confirm({ clientX: event.clientX, clientY: event.clientY + 80 }, `重命名此文件？<br>${escapeHtml(match.name)}<br>→ ${escapeHtml(nextName)}`, async () => {
             const scope = this.lifecycleScope;
             if (!this.isCurrent(scope)) return;
             try {
                 await this.offline.renameFile("one115", match.fileId, nextName, { scope });
-                if (this.isCurrent(scope)) this.notifications.ok("重命名完成");
+                if (this.isCurrent(scope)) this.notifications.ok("已重命名");
             } catch (error) {
                 if (!this.isCurrent(scope)) return;
                 this.report("115 重命名失败", error);
-                this.notifications.error(`重命名失败：${error instanceof Error ? error.message : String(error)}`);
+                this.notifications.error("重命名失败，请重试");
             }
-        });
+        }, { confirmText: "重命名" });
     }
 
     createRetryButton() {

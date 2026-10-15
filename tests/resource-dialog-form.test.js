@@ -8,11 +8,12 @@ import { BUILT_IN_SCREENSHOT_SOURCES } from "../src/services/screenshot-sources.
 const $ = jquery;
 afterEach(() => { document.body.innerHTML = ""; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function fixture() {
+function fixture(logger) {
     vi.stubGlobal("storageManager", {});
+    vi.stubGlobal("$", $);
     const dialog = { open: vi.fn(), close: vi.fn() };
     const notifications = { error: vi.fn(), info: vi.fn() };
-    const plugin = new SettingPlugin({ runtimeServices: { dialog }, jquery: $, utilities: { getDialogArea: () => ["60%", "80%"] }, notifications, document, window });
+    const plugin = new SettingPlugin({ runtimeServices: { dialog }, jquery: $, utilities: { getDialogArea: () => ["60%", "80%"] }, notifications, logger, document, window });
     const records = { customMagnetSources: [], magnetTagRules: [], magnetFilterRules: [] };
     const resourceSettings = {
         updateArray: vi.fn(async (key, mutator) => { records[key] = mutator([...records[key]]); }),
@@ -67,7 +68,7 @@ describe("resource settings dialogs", () => {
         }), expect.anything());
         expect(root.find("#screenshot-source-list .jhs-source-test-state").text()).toBe("HTTP 200 · 已响应（未验证解析）");
         await test.plugin.testSource(root.find("#builtin-magnet-source-list .jhs-source-test")[0], null, { source: BUILT_IN_NATIVE_MAGNET_SOURCES[0] });
-        expect(test.notifications.info).toHaveBeenCalledWith("本站资源依赖当前页面，无需单独检测");
+        expect(test.notifications.info).toHaveBeenCalledWith("此来源使用当前页面");
     });
 
     it.each([
@@ -159,6 +160,20 @@ describe("resource settings dialogs", () => {
         await options.yes(1);
         expect(test.records.customMagnetSources).toHaveLength(1);
         expect(test.dialog.close).toHaveBeenCalledExactlyOnceWith(1);
+    });
+
+    it("reports a safe source failure while preserving the original cause in an injected logger", async () => {
+        const logger = { error: vi.fn() }, test = fixture(logger), error = new Error("synthetic-private-url?password=secret");
+        test.resourceSettings.updateArray.mockRejectedValueOnce(error);
+        test.plugin.openSourceDialog();
+        const options = test.dialog.open.mock.calls[0][0];
+        options.content.find('[name="name"]').val("重试来源");
+        options.content.find('[name="searchUrlTemplate"]').val("https://example.org/search?q={keyword}");
+        await options.yes(1);
+        expect(logger.error).toHaveBeenCalledWith("资源设置操作失败", error);
+        expect(test.notifications.error).toHaveBeenCalledExactlyOnceWith("资源设置保存失败，请重试");
+        expect(test.dialog.close).not.toHaveBeenCalled();
+        expect(test.records.customMagnetSources).toHaveLength(0);
     });
 
     it.each(["tag", "filter"])("creates and edits %s rules with numeric fields", async kind => {

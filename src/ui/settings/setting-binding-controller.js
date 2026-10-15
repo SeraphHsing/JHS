@@ -152,7 +152,7 @@ class SettingBindingHub {
                     this.syncAll(key, committed);
                     this._maybeDispose();
                     if (typeof /** @type {any} */ (globalThis).show?.error === "function") {
-                        /** @type {any} */ (globalThis).show.error(`${label || key}保存失败，已恢复原设置`);
+                        /** @type {any} */ (globalThis).show.error("设置保存失败，已恢复原设置");
                     } else if (typeof /** @type {any} */ (globalThis).clog?.error === "function") {
                         /** @type {any} */ (globalThis).clog.error(`${label || key}保存失败，已恢复原设置`, error);
                     }

@@ -68,7 +68,7 @@ describe("Detail page actions Feature controller", () => {
         expect(fixture.diagnostics.recordError).toHaveBeenCalledWith(expect.objectContaining({ contributionId: "detail.page-state-actions" }));
 
         await fixture.controller.searchXunLeiSubtitle("");
-        expect(fixture.notifications.error).toHaveBeenCalledWith("迅雷中找不到相关字幕!");
+        expect(fixture.notifications.error).toHaveBeenCalledWith("未找到该番号的迅雷字幕");
         expect(fixture.loadingClose).toHaveBeenCalledOnce();
         fixture.scope.dispose();
     });
@@ -86,10 +86,12 @@ describe("Detail page actions Feature controller", () => {
         const root = $("<div class='layui-layer'></div>").append(options.content).appendTo(document.body);
         options.success(root);
         const content = root.find(".jhs-magnet-dialog");
-        expect(content.text()).toContain("正在加载");
+        expect(content.text()).toBe("加载中…");
+        expect(content.attr("aria-busy")).toBe("true");
         await vi.waitFor(() => expect(createMagnetHub).toHaveBeenCalledOnce());
         resolveHub($("<div>磁力结果</div>"));
         await vi.waitFor(() => expect(content.text()).toContain("磁力结果"));
+        expect(content.attr("aria-busy")).toBe("false");
         options.end();
         $("#magnetSearchBtn").trigger("click");
         const later = fixture.dialog.open.mock.calls[1][0];
@@ -97,6 +99,7 @@ describe("Detail page actions Feature controller", () => {
         later.success(laterRoot);
         await vi.waitFor(() => expect(createMagnetHub).toHaveBeenCalledTimes(2));
         later.end();
+        expect(laterRoot.find(".jhs-magnet-dialog").attr("aria-busy")).toBe("false");
         resolveHub($("<div>迟到的结果</div>"));
         await Promise.resolve();
         expect(laterRoot.text()).not.toContain("迟到的结果");

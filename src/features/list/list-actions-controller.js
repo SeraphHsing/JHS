@@ -1,5 +1,6 @@
 // @ts-check
 
+import { OwnedPopover } from "../../core/owned-popover.js";
 import { _, d, g, h } from "../../core/constants.js";
 import { hasAnyState, normalizeStateFlags } from "../../core/state-model.js";
 import { isHardHidden } from "./list-filters.js";
@@ -31,6 +32,7 @@ export class ListActionsController {
         this.disposed = false;
         this.managedByFeature = true;
         this.compatibilityRelease = null;
+        this.sortSelectionRevision = 0;
         /** @type {Set<any>} */
         this.activeLoadings = new Set();
     }
@@ -94,8 +96,8 @@ export class ListActionsController {
         handle?.close?.();
     }
 
-    /** Sync the sort menu with the current setting and live-sort capability. */
-    async syncSortUi() {
+    /** Sync the sort menu with the current setting and live-sort capability. @param {boolean} [sort] */
+    async syncSortUi(sort = true) {
         const $ = this.$, autoPage = this.settings.snapshot().autoPage ?? _;
         const live = this.sortController?.supportsLiveSorting?.() ?? false;
         const toggle = $("#sort-toggle-btn");
@@ -106,7 +108,7 @@ export class ListActionsController {
             $("#jhs-sort-current").text("默认（瀑布流）");
             menu.find(".jhs-sort-option").attr("aria-checked", "false");
             menu.find('[data-sort-method="default"]').attr("aria-checked", "true");
-            await this.sortController?.sortItems?.("default");
+            if (sort) await this.sortController?.sortItems?.("default");
             return;
         }
         const requestedMethod = this.activeSortMethod();
@@ -117,7 +119,7 @@ export class ListActionsController {
         $("#jhs-sort-current").text(current);
         menu.find(".jhs-sort-option").attr("aria-checked", "false");
         menu.find(`[data-sort-method="${method}"]`).attr("aria-checked", "true");
-        await this.sortController?.sortItems?.();
+        if (sort) await this.sortController?.sortItems?.();
     }
 
     /** @param {LifecycleScope} scope @param {any} [target] */
@@ -145,7 +147,7 @@ export class ListActionsController {
             const sortTitle = `当前排序方式: ${initialSort === "rateCount" ? "评价人数" : initialSort === "date" ? "时间" : "默认"}`;
             const suppressSort = this.sortController?.isRestrictedContext?.() ?? (pageUrl.href.includes("/search?q") || pageUrl.pathname.includes("/search/") || pageUrl.pathname.includes("/users/"));
             const actorActions = isActorPage && hasBlacklist
-                ? `<button type="button" id="addBlacklistBtn" class="jhs-btn ${blacklistClass}" data-tip="将演员加入黑名单, 后续有作品更新也会纳入屏蔽中"><span>${blacklistLabel}</span></button><button type="button" id="filterAllVideo" class="jhs-btn jhs-btn--watch" data-tip="一键屏蔽已选分类的视频列表至鉴定记录中"><span>批量屏蔽</span></button>`
+                ? `<button type="button" id="addBlacklistBtn" class="jhs-btn ${blacklistClass}" data-tip="屏蔽此演员及其后续影片"><span>${blacklistLabel}</span></button><button type="button" id="filterAllVideo" class="jhs-btn jhs-btn--watch" data-tip="屏蔽当前分类的影片"><span>批量屏蔽</span></button>`
                 : "";
             const batchActions = hasList
                 ? `<button type="button" id="favoriteAllVideo" class="jhs-btn jhs-btn--fav" data-tip="${this.getBatchActionTip("favorite")}"><span>批量收藏</span></button><button type="button" id="hasDownAllVideo" class="jhs-btn jhs-btn--down" data-tip="${this.getBatchActionTip("download")}"><span>批量标记已下载</span></button>`
@@ -159,7 +161,7 @@ export class ListActionsController {
         } else {
             const initialSort = this.activeSortMethod();
             const actorActions = isActorPage && hasBlacklist
-                ? `<button type="button" id="addBlacklistBtn" class="jhs-btn ${blacklistClass}" data-tip="将演员加入黑名单, 后续有作品更新也会纳入屏蔽中"><span>${blacklistLabel}</span></button><button type="button" id="filterAllVideo" class="jhs-btn jhs-btn--watch" data-tip="一键屏蔽已选分类的视频列表至鉴定记录中"><span>批量屏蔽</span></button>`
+                ? `<button type="button" id="addBlacklistBtn" class="jhs-btn ${blacklistClass}" data-tip="屏蔽此演员及其后续影片"><span>${blacklistLabel}</span></button><button type="button" id="filterAllVideo" class="jhs-btn jhs-btn--watch" data-tip="屏蔽当前分类的影片"><span>批量屏蔽</span></button>`
                 : "";
             const batchActions = hasList
                 ? `<button type="button" id="favoriteAllVideo" class="jhs-btn jhs-btn--fav" data-tip="${this.getBatchActionTip("favorite")}"><span>批量收藏</span></button><button type="button" id="hasDownAllVideo" class="jhs-btn jhs-btn--down" data-tip="${this.getBatchActionTip("download")}"><span>批量标记已下载</span></button>`
@@ -191,7 +193,7 @@ export class ListActionsController {
         const update = async () => {
             const tag = this.$("#jhs-check-tag").text().trim();
             if (!tag || scope.disposed) return false;
-            button.attr("data-tip", "将当前分类标签加入到黑名单, 后续有作品更新也会纳入屏蔽中");
+            button.attr("data-tip", "屏蔽此分类及其后续影片");
             const blacklisted = await this.isBlacklisted(`no-${tag}`);
             if (scope.disposed || this.$("#jhs-check-tag").text().trim() !== tag) return false;
             if (blacklisted) button.addClass("jhs-btn--muted").removeClass("jhs-btn--filter").find("span").text("已加入黑名单");
@@ -252,32 +254,29 @@ export class ListActionsController {
         const $ = this.$, control = $(".jhs-sort-control");
         if (!control.length) return;
         const toggle = control.find("#sort-toggle-btn"), menu = control.find(".jhs-sort-menu");
-        const close = (focus = false) => {
-            menu.removeClass("is-open");
-            toggle.attr("aria-expanded", "false");
-            if (focus) toggle.trigger("focus");
-        };
+        const popover = new OwnedPopover(toggle[0], menu[0]);
+        this.scope.addCleanup(() => popover.close());
+        const close = (focus = false) => popover.close(focus);
         toggle.on("click.jhsListActions", (/** @type {any} */ event) => {
             event.preventDefault();
             event.stopPropagation();
-            const open = !menu.hasClass("is-open");
-            menu.toggleClass("is-open", open);
-            toggle.attr("aria-expanded", String(open));
-            if (open) menu.find('[aria-checked="true"]').trigger("focus");
+            if (popover.opened) close();
+            else popover.open(menu.find('[aria-checked="true"]')[0]);
         });
         menu.on("click.jhsListActions", ".jhs-sort-option", async (/** @type {any} */ event) => {
             const item = $(event.currentTarget), method = item.data("sort-method");
-            const previousItem = menu.find('.jhs-sort-option[aria-checked="true"]').first();
-            const previousLabel = $("#jhs-sort-current").text();
+            const revision = ++this.sortSelectionRevision;
             menu.find(".jhs-sort-option").attr("aria-checked", "false");
             item.attr("aria-checked", "true");
             $("#jhs-sort-current").text(item.text());
             close(true);
-            try { await this.selectSortMethod(method); }
+            try {
+                await this.selectSortMethod(method);
+                if (!this.disposed && revision === this.sortSelectionRevision) await this.syncSortUi(false);
+            }
             catch (error) {
-                menu.find(".jhs-sort-option").attr("aria-checked", "false");
-                previousItem.attr("aria-checked", "true");
-                $("#jhs-sort-current").text(previousLabel);
+                if (this.disposed || revision !== this.sortSelectionRevision) return;
+                await this.syncSortUi(false);
                 this.recordError("排序设置保存失败，已恢复", error);
                 this.notifications.error("排序设置保存失败，已恢复原设置");
             }
@@ -289,10 +288,7 @@ export class ListActionsController {
             const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (index + 1) % items.length : (index - 1 + items.length) % items.length;
             items.eq(next).trigger("focus");
         });
-        const onDocumentClick = (/** @type {Event} */ event) => {
-            if (!$(/** @type {any} */ (event.target)).closest(control).length) close();
-        };
-        this.scope.listen(this.document, "click", onDocumentClick);
+
     }
 
     /** @param {string} [methodOverride] */
@@ -304,7 +300,7 @@ export class ListActionsController {
     /** @param {"favorite" | "download"} action */
     getBatchActionTip(action) {
         const page = this.isOwnedRankingPage() ? "当前榜单页面" : this.isExternalFc2CatalogPage() ? "当前片库页面" : "当前搜索全部分页";
-        return action === "favorite" ? `收藏${page}中符合当前筛选的作品` : `标记${page}中符合当前筛选的作品为已下载`;
+        return action === "favorite" ? `收藏${page}中符合当前筛选的影片` : `标记${page}中符合当前筛选的影片为已下载`;
     }
 
     activeSortMethod() { return this.sortController?.activeSortMethod?.() ?? "default"; }
@@ -352,6 +348,6 @@ export class ListActionsController {
             await this.list.openMovieDetail(item, { autoplay: true, newTab: false });
             opened += 1;
         }
-        if (!opened) this.notifications.info("没有需鉴定的视频");
+        if (!opened) this.notifications.info("暂无待鉴定影片");
     }
 }

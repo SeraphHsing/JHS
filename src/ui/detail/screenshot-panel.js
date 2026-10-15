@@ -1,6 +1,6 @@
 // @ts-check
 
-import { createPanelError, createPanelLoading } from "./primitives.js";
+import { createPanelEmpty, createPanelError, createPanelLoading } from "./primitives.js";
 
 /** @param {unknown} value */
 function normalizeImageUrl(value) {
@@ -10,8 +10,8 @@ function normalizeImageUrl(value) {
     } catch { return null; }
 }
 
-/** @param {any} host @param {string} url @param {string} alt */
-function renderImage(host, url, alt) {
+/** @param {any} host @param {string} url @param {string} alt @param {any} scope */
+function renderImage(host, url, alt, scope) {
     const jq = /** @type {any} */ (globalThis).$;
     const normalized = normalizeImageUrl(url);
     if (!normalized) return null;
@@ -19,7 +19,7 @@ function renderImage(host, url, alt) {
     const button = jq('<button type="button" class="jhs-btn jhs-fc2-gallery-item jhs-fc2-screenshot-thumbnail"></button>').attr("aria-label", `查看${alt}大图`).append(image);
     host.empty().append(button).off("click.jhsScreenshot").on("click.jhsScreenshot", ".jhs-fc2-screenshot-thumbnail", (/** @type {any} */ event) => {
         event.preventDefault(); event.stopPropagation();
-        /** @type {any} */ (globalThis).showImageViewer(image[0]);
+        /** @type {any} */ (globalThis).showImageViewer(image[0], "", { imageKind:"contact-sheet", owner: button[0], trigger: button[0], scope });
     });
     return normalized;
 }
@@ -35,21 +35,30 @@ export async function renderScreenshotPanel(options) {
     const { mode } = options.screenshot.getScreenshotSettings(options.settings);
     const enabledProviders = options.screenshot.getEnabledProviders(options.settings);
     if (mode !== "manual" && !enabledProviders.some((provider) => provider.id === providerId)) return host.empty(), null;
-    if (!enabledProviders.length) return host.empty().append(jq('<div class="jhs-panel-state">没有可用截图来源</div>')), host;
+    if (!enabledProviders.length) return host.empty().append(createPanelEmpty("暂无可用截图来源")), host;
     const load = async (resultHost = host, selectedProviderId = providerId) => {
-        resultHost.empty().append(createPanelLoading("正在加载缩略图…"));
+        const request = {};
+        const release = options.scope?.addCleanup(() => {
+            if (resultHost.data("jhs-screenshot-request") === request) resultHost.attr("aria-busy", "false").removeData("jhs-screenshot-request");
+        });
+        resultHost.data("jhs-screenshot-request", request).attr("aria-busy", "true").empty().append(createPanelLoading());
         try {
             const images = await options.screenshot.resolve({ carNum: options.carNum }, { providerId: selectedProviderId, scope: options.scope, settings: options.settings });
-            if (!isActive()) return null;
+            if (!isActive() || resultHost.data("jhs-screenshot-request") !== request) return null;
             const image = Array.isArray(images) ? images[0] : images;
-            if (!image?.url) return resultHost.empty(), null;
+            if (!image?.url) return resultHost.empty().append(createPanelEmpty("暂无缩略图")), null;
             if (options.isDuplicate?.(image.url)) return resultHost.empty(), null;
-            return renderImage(resultHost, image.url, "缩略图");
+            const imageUrl = renderImage(resultHost, image.url, "缩略图", options.scope);
+            if (!imageUrl) resultHost.empty().append(createPanelEmpty("暂无缩略图"));
+            return imageUrl;
         } catch (error) {
-            if (!isActive()) return null;
-            resultHost.empty().append(createPanelError("缩略图加载失败 ", () => void load(resultHost, selectedProviderId)));
+            if (!isActive() || resultHost.data("jhs-screenshot-request") !== request) return null;
+            resultHost.empty().append(createPanelError("缩略图加载失败", () => void load(resultHost, selectedProviderId)));
             /** @type {any} */ (globalThis).clog?.error("缩略图加载失败", error);
             return null;
+        } finally {
+            release?.();
+            if (resultHost.data("jhs-screenshot-request") === request) resultHost.attr("aria-busy", "false").removeData("jhs-screenshot-request");
         }
     };
     if (mode !== "manual") return load();
@@ -57,7 +66,7 @@ export async function renderScreenshotPanel(options) {
     const resultId = `jhs-screenshot-result-${String(options.carNum).replace(/[^a-z0-9_-]/gi, "-")}`;
     const result = jq('<div class="jhs-screenshot-result" role="tabpanel"></div>').attr("id", resultId).text("请选择截图来源");
     enabledProviders.forEach((provider, index) => {
-        const button = jq('<button type="button" class="jhs-btn jhs-btn--secondary" role="tab" aria-selected="false"></button>').attr({ "aria-controls": resultId, tabindex: index === 0 ? "0" : "-1" }).text(provider.name);
+        const button = jq('<button type="button" class="jhs-btn jhs-btn--secondary jhs-tab" role="tab" aria-selected="false"></button>').attr({ "aria-controls": resultId, tabindex: index === 0 ? "0" : "-1" }).text(provider.name);
         button.on("click", async () => {
             tabs.find("[role='tab']").attr({ "aria-selected": "false", tabindex: "-1" });
             button.attr({ "aria-selected": "true", tabindex: "0" });

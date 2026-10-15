@@ -236,7 +236,7 @@ test("Settings opens when optional CoverButton and Blacklist contributions are d
   expect(coverCompatibility).toEqual({ listMounted: true, legacyDescriptor: true });
   await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
   await expect(page.locator(".layui-layer #saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-  await page.locator('.layui-layer .side-menu-item[data-panel="base-panel"]').click();
+  await page.locator('.layui-layer .side-menu-item[data-panel="browse-panel"]').click();
   await page.locator(".layui-layer #reviewCount").selectOption("30", { force: true });
   await page.locator(".layui-layer #saveBtn").click();
   await expect.poll(() => page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings").snapshot().reviewCount)).toBe("30");
@@ -251,9 +251,9 @@ test("Settings remains interactive and catalogs a disabled external-sites contri
   await page.evaluate(() => window.unsafeWindow.pluginManager.diagnostics.recordError({ source: "feature-runtime", featureId: "list", message: "synthetic feature failure" }));
   await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
   await expect(page.locator(".layui-layer #saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-  await page.locator('.layui-layer .side-menu-item[data-panel="base-panel"]').click();
+  await page.locator('.layui-layer .side-menu-item[data-panel="appearance-panel"]').click();
   await expect(page.locator(".layui-layer #base-panel")).toBeVisible();
-  await page.locator('.layui-layer .side-menu-item[data-panel="plugin-mgmt-panel"]').click();
+  await page.locator('.layui-layer .side-menu-item[data-panel="advanced-panel"]').click();
   const externalSitesToggle = page.locator('.layui-layer .pm-toggle[data-plugin="OtherSitePlugin"]');
   await expect(externalSitesToggle).toBeVisible();
   await expect(externalSitesToggle).not.toBeChecked();
@@ -307,7 +307,7 @@ test("Settings blocks saving until failed hydration is retried successfully", as
   const save = page.locator(".layui-layer #saveBtn");
   await expect(save).toBeDisabled();
   await expect(save).toHaveAttribute("data-jhs-settings-ready", "false");
-  await expect(page.locator(".layui-layer #settings-hydration-status")).toContainText("表单加载失败");
+  await expect(page.locator(".layui-layer #settings-hydration-status")).toContainText("设置加载失败");
   await page.evaluate(() => {
     const movie = window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("movie");
     movie.externalSiteOrigin = window.__jhsOriginalExternalSiteOrigin;
@@ -469,7 +469,7 @@ test("captured detail ownership survives detached controls, iframe isolation, an
     };
     await plugin.submitResource({ currentTarget: button, clientX: 120, clientY: 120 }, "magnet:?xt=urn:btih:fixture", window.jQuery(button), { carNum: "ABC-1" });
   });
-  await detailFrame.locator(".layui-layer-btn0").click();
+  await detailFrame.locator(".layui-layer-btn").getByText("标记已下载", { exact: true }).click();
   await expect(page.locator(`#layui-layer${iframeLayerIndex}`)).toHaveCount(0);
 });
 

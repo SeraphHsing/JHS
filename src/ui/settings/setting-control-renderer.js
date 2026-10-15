@@ -3,6 +3,7 @@
 import { parseBooleanSetting } from "../../core/feature-helpers.js";
 import { JhsSelect } from "../../core/ui-primitives.js";
 import { getSettingBindingHub } from "./setting-binding-controller.js";
+let nextControlId = 0;
 
 /**
  * Shared setting UI renderer. Both the full settings dialog and the quick
@@ -24,7 +25,7 @@ export function renderSettingControl(descriptor, options = {}) {
     const onChange = options.onChange ?? null;
     /** @type {any} */ let control;
     if (descriptor.type === "boolean") {
-        control = jq('<input type="checkbox" class="mini-switch">').prop("checked", normalizeBooleanValue(descriptor.key, value));
+        control = jq('<input type="checkbox" class="mini-switch" role="switch">').prop("checked", normalizeBooleanValue(descriptor.key, value));
         control.on("change", () => { onChange?.(control.is(":checked") ? "yes" : "no"); });
         return { root: control, getValue: () => control.is(":checked") ? "yes" : "no", setValue: /** @param {unknown} next */ (next) => control.prop("checked", normalizeBooleanValue(descriptor.key, next)) };
     }
@@ -41,6 +42,7 @@ export function renderSettingControl(descriptor, options = {}) {
     }
     if (descriptor.type === "number") {
         control = jq('<input type="number" class="jhs-field">').val(value == null ? "" : String(value));
+        for (const name of ["min", "max", "step"]) if (descriptor[name] != null) control.attr(name, descriptor[name]);
         control.on("change", () => onChange?.(Number(control.val()) || 0));
         return { root: control, getValue: () => Number(control.val()) || 0, setValue: /** @param {unknown} next */ (next) => control.val(next == null ? "" : String(next)) };
     }
@@ -49,15 +51,21 @@ export function renderSettingControl(descriptor, options = {}) {
     return { root: control, getValue: () => control.val(), setValue: /** @param {unknown} next */ (next) => control.val(next == null ? "" : String(next)) };
 }
 
-/** Build a canonical jhs-setting-row for a descriptor. @param {Record<string, any>} descriptor @param {ControlOptions & { value?: unknown }} [options] */
+/** Build a canonical jhs-setting-row for a descriptor. @param {Record<string, any>} descriptor @param {ControlOptions & { value?: unknown, layout?: "compact" | "stacked" | "action" }} [options] */
 export function renderSettingRow(descriptor, options = {}) {
     const jq = /** @type {any} */ (globalThis).$;
     const rendered = renderSettingControl(descriptor, { value: options.value, onChange: options.onChange });
+    const id = `jhs-setting-control-${++nextControlId}`;
     const copy = jq('<span class="jhs-setting-row__copy"></span>')
-        .append(jq('<span class="jhs-setting-row__label"></span>').text(descriptor.label))
-        .append(jq('<span class="jhs-setting-row__description"></span>').text(descriptor.description || ""));
+        .append(jq('<span class="jhs-setting-row__label"></span>').attr("id", `${id}-label`).text(descriptor.label));
+    rendered.root.attr({ id, "aria-labelledby": `${id}-label` });
+    if (descriptor.description) {
+        copy.append(jq('<span class="jhs-setting-row__description"></span>').attr("id", `${id}-description`).text(descriptor.description));
+        rendered.root.attr("aria-describedby", `${id}-description`);
+    }
     const control = jq('<span class="jhs-setting-row__control"></span>').append(rendered.root);
     const row = jq('<label class="jhs-setting-row"></label>')
+        .addClass(`jhs-setting-row--${options.layout || "compact"}`)
         .attr("data-jhs-setting", descriptor.key)
         .attr("data-jhs-setting-effect", descriptor.effect || "live")
         .toggleClass("jhs-setting-row--indent", descriptor.indent === true)

@@ -2,7 +2,7 @@
 
 import { LifecycleScope } from "../../core/lifecycle-scope.js";
 
-export const INFO_TAG_CSS = ".info-tag{background-color:var(--jhs-status-fav-tint);display:inline-block;height:32px;padding:0 10px;line-height:30px;font-size:12px;color:var(--jhs-status-fav);border:1px solid var(--jhs-status-fav-tint);border-radius:4px;box-sizing:border-box;white-space:nowrap}";
+export const INFO_TAG_CSS = ".info-tag{background-color:var(--jhs-status-fav-tint);display:inline-flex;align-items:center;min-height:var(--jhs-control-height-sm);padding:0 var(--jhs-space-2);line-height:var(--jhs-line-height-tight);font-size:var(--jhs-font-size-xs);color:var(--jhs-status-fav-text);border:1px solid var(--jhs-status-fav-tint);border-radius:var(--jhs-radius-xs);box-sizing:border-box;white-space:nowrap}";
 
 /** Manage optional actress information and cancel lookups when the setting or feature turns off. */
 export class ActressInfoController {
@@ -87,7 +87,7 @@ export class ActressInfoController {
         link.rel = "noopener noreferrer";
         if (info) {
             const heading = this.document.createElement("strong");
-            heading.textContent = `${name}:`;
+            heading.textContent = `${name}：`;
             block.append(heading);
             link.className = "jhs-layout-9813a0dd";
             link.href = this.safeExternalUrl(info.url) || "#";
@@ -99,7 +99,7 @@ export class ActressInfoController {
         } else {
             link.href = this.safeExternalUrl(this.service.profileUrl(name)) || "#";
             const heading = this.document.createElement("strong");
-            heading.textContent = `${name}:`;
+            heading.textContent = `${name}：`;
             link.append(heading);
         }
         block.append(link);

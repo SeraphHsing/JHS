@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { fulfillHostFixtures, injectUserscriptRuntime } from "../harness/runtime.js";
 
-test.beforeEach(({}, info) => test.skip(!["desktop-wide", "mobile", "mobile-small", "mobile-landscape"].includes(info.project.name), "viewer ownership has desktop and touch coverage"));
+test.beforeEach(({}, info) => test.skip(info.project.name === "firefox-controls", "Chromium viewer matrix"));
 
 async function openFixture(page, context) {
     await fulfillHostFixtures(context);
@@ -43,6 +43,12 @@ async function openDetail(page) {
     await page.waitForFunction(() => document.querySelector(".layui-layer").getAnimations().every(animation => animation.playState !== "running"));
 }
 
+async function expectLongImage(page) {
+    await expect.poll(() => page.locator(".viewer-canvas img").evaluate(image => {
+        const rect = image.getBoundingClientRect(), bounds = image.closest(".viewer-container").getBoundingClientRect();
+        return Math.abs(rect.width-bounds.width) < 1 && Math.abs(rect.top-bounds.top) < 1;
+    })).toBe(true);
+}
 async function expectImageFits(page) {
     await expect.poll(() => page.locator(".viewer-canvas img").evaluate(image => {
         const rect = image.getBoundingClientRect(), viewer = image.closest(".viewer-container"), bounds = viewer.getBoundingClientRect(), footer = viewer.querySelector(".viewer-footer").getBoundingClientRect();
@@ -66,27 +72,28 @@ for (const reducedMotion of ["no-preference", "reduce"]) {
         await expect.poll(width).toBeCloseTo(initialWidth, 0);
         await activate(viewer.getByRole("button",{name:"放大图片",exact:true}));
         await expect.poll(width).toBeGreaterThan(initialWidth * 1.05);
-        await activate(viewer.getByRole("button",{name:"适应窗口",exact:true}));
+        await activate(viewer.getByRole("button",{name:"完整显示",exact:true}));
         await expect.poll(width).toBeCloseTo(initialWidth, 0);
-        await expect(viewer.locator(".jhs-image-viewer-count")).toHaveText("2 / 3");
+        await expect(viewer.locator(".jhs-image-viewer-count")).toHaveText("2 / 2");
         await expectImageFits(page);
-        await activate(viewer.getByRole("button",{name:"下一张",exact:true}));
-        await expect(viewer.locator(".jhs-image-viewer-count")).toHaveText("3 / 3");
-        await expectImageFits(page);
+        await expect(viewer.getByRole("button",{name:"下一张",exact:true})).toBeDisabled();
+        await activate(viewer.getByRole("button",{name:"关闭图片",exact:true}));
+        await activate(page.getByRole("button",{name:"查看缩略图大图",exact:true}));
+        await expect(viewer.locator(".jhs-image-viewer-count")).toHaveText("1 / 1");
+        await expectLongImage(page);
         const sheetWidth = await width();
         await activate(viewer.getByRole("button",{name:"放大图片",exact:true}));
         await expect.poll(width).toBeGreaterThan(sheetWidth * 1.05);
     });
 }
 
-test("FC2 images fit inside their detail dialog and expose touch sized side navigation", async ({page,context}, testInfo) => {
+test("FC2 images cover the browser viewport and expose touch sized side navigation", async ({page,context}, testInfo) => {
     await openFixture(page,context);
     await page.getByRole("button",{name:"查看剧照 2",exact:true}).click();
     const viewer = page.locator(".viewer-container");
     const activate = control => testInfo.project.use.hasTouch ? control.tap() : control.click();
     await expect(viewer).toBeVisible();
-    await expect(viewer.locator("xpath=ancestor::*[contains(@class,'layui-layer-content')]")).toHaveCount(1);
-    await expect(page.locator(".jhs-image-viewer-host")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(viewer.locator("xpath=ancestor::*[contains(@class,'layui-layer-content')]")).toHaveCount(0);
     await expect(viewer).toHaveCSS("background-color", "rgba(0, 0, 0, 0.5)");
     await expectImageFits(page);
     for (const name of ["上一张", "下一张", "关闭图片"]) {
@@ -97,31 +104,28 @@ test("FC2 images fit inside their detail dialog and expose touch sized side navi
         expect(size.height).toBeGreaterThanOrEqual(44);
     }
     if (testInfo.project.name === "mobile") await page.screenshot({path:testInfo.outputPath("fc2-preview-fit.png")});
-    await activate(viewer.getByRole("button",{name:"下一张",exact:true}));
-    await expect(page.locator(".viewer-canvas img")).toHaveAttribute("src","https://images.example.test/sheet.svg");
-    await expectImageFits(page);
+    await expect(viewer.getByRole("button",{name:"下一张",exact:true})).toBeDisabled();
     await activate(viewer.getByRole("button",{name:"上一张",exact:true}));
-    await expect(page.locator(".viewer-canvas img")).toHaveAttribute("src","https://images.example.test/2.svg");
+    await expect(page.locator(".viewer-canvas img")).toHaveAttribute("src","https://images.example.test/1.svg");
     await activate(viewer.getByRole("button",{name:"关闭图片",exact:true}));
     await expect(viewer).toHaveCount(0);
     await expect(page.getByRole("button",{name:"查看剧照 2",exact:true})).toBeFocused();
     await expect(page.locator(".jhs-fc2-workspace")).not.toHaveAttribute("inert");
 });
 
-test("FC2 wheel changes image and screenshot shares the gallery across resize", async ({page,context}) => {
+test("FC2 wheel zooms without switching and preserves camera across resize", async ({page,context}) => {
     await openFixture(page,context);
     await page.getByRole("button",{name:"查看缩略图大图",exact:true}).click();
-    await expectImageFits(page);
-    const canvas = page.locator(".viewer-canvas");
-    await canvas.hover();
+    await expectLongImage(page);
+    const image = page.locator(".viewer-canvas img");
+    const initial = await image.boundingBox();
+    await page.mouse.move(initial.x + 100, 180);
     await page.mouse.wheel(0,-120);
-    await expect(page.locator(".viewer-canvas img")).toHaveAttribute("src","https://images.example.test/2.svg");
-    await expectImageFits(page);
+    await expect.poll(() => image.evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThan(initial.width * 1.05);
+    await expect(image).toHaveAttribute("src","https://images.example.test/sheet.svg");
+    const camera = await image.boundingBox();
     await page.setViewportSize({width:360,height:640});
-    await expectImageFits(page);
-    const bounds = await page.locator(".viewer-container").boundingBox();
-    expect(bounds.width).toBeLessThanOrEqual(360);
-    expect(bounds.height).toBeLessThanOrEqual(640);
+    await expect.poll(() => image.boundingBox()).toEqual(camera);
     await page.keyboard.press("Escape");
     await expect(page.locator(".viewer-container,.jhs-image-viewer-host")).toHaveCount(0);
 });

@@ -2,7 +2,7 @@
 
 import { requestCancelBatchRun } from "./batch-coordinator.js";
 
-export const LIST_BATCH_UI_STYLES = `.jhs-batch-progress{position:fixed;right:16px;bottom:16px;z-index:var(--jhs-z-modal);display:flex;align-items:center;gap:var(--jhs-space-2);padding:var(--jhs-space-2) var(--jhs-space-3);border:1px solid var(--jhs-border);border-radius:var(--jhs-radius-md);background:var(--jhs-surface);color:var(--jhs-text);box-shadow:0 4px 16px rgba(0,0,0,.18)}.jhs-btn.jhs-batch-busy{opacity:.55;cursor:not-allowed}`;
+export const LIST_BATCH_UI_STYLES = `.jhs-batch-progress{position:fixed;right:16px;bottom:16px;z-index:var(--jhs-z-modal);display:flex;align-items:center;gap:var(--jhs-space-2);padding:var(--jhs-space-2) var(--jhs-space-3);border:1px solid var(--jhs-border);border-radius:var(--jhs-radius-md);background:var(--jhs-surface);color:var(--jhs-text);box-shadow:var(--jhs-shadow-md)}.jhs-btn.jhs-batch-busy{opacity:.55;cursor:not-allowed}`;
 
 /** Native Feature-owned confirmation and progress presentation for cross-page batch work. */
 export class ListBatchUi {
@@ -18,8 +18,8 @@ export class ListBatchUi {
         this.disposed = false;
     }
 
-    /** @param {string} message */
-    confirm(message) {
+    /** @param {string} message @param {{confirmText?: string}} [options] */
+    confirm(message, options = {}) {
         if (this.disposed) return Promise.resolve(false);
         return new Promise((resolve) => {
             let settled = false;
@@ -43,7 +43,8 @@ export class ListBatchUi {
             try {
                 dialogId = this.dialog.confirm(message, {
                     title: "提示",
-                    btn: [ "确定", "取消" ],
+                    confirmText: options.confirmText || "开始处理",
+                    cancelText: "取消",
                     shade: 0,
                     end: () => finish(false),
                 }, accept);

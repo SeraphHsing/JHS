@@ -209,9 +209,13 @@ describe("unified offline button state", () => {
         expect(submit).toHaveBeenCalledOnce();
     });
     it("reports the provider failure even when recording that failure also fails", async () => {
-        const {plugin,button,context}=loadOfflinePlugin(vi.fn(async()=>{throw new Error("cloud failure");}),vi.fn(async()=>{throw new Error("disk failure");}));
+        const failure = new Error("cloud failure https://private.example/?token=secret"), historyFailure = new Error("disk failure");
+        const {plugin,button,context}=loadOfflinePlugin(vi.fn(async()=>{throw failure;}),vi.fn(async()=>{throw historyFailure;}));
         await expect(plugin.submitResource({}, "magnet:?xt=failed", button, {carNum:"ABC-1"})).resolves.toBeUndefined();
-        expect(context.show.error).toHaveBeenCalledWith(expect.stringContaining("cloud failure")); expect(button.hasClass("loading")).toBe(false);
+        expect(context.show.error).toHaveBeenCalledWith("离线提交失败，请稍后重试"); expect(button.hasClass("loading")).toBe(false);
+        expect(context.show.error.mock.calls.flat().join(" ")).not.toContain("secret");
+        expect(plugin.diagnostics.recordError).toHaveBeenCalledWith(expect.objectContaining({ source: "offline-submit", message: failure.message, error: failure }));
+        expect(plugin.diagnostics.recordError).toHaveBeenCalledWith(expect.objectContaining({ source: "offline-failure-history", message: historyFailure.message }));
     });
     it("shows the configured 115 login entry only for authentication failures", async () => {
         const authFailure = Object.assign(new Error("115 未登录"), { code: "AUTH_REQUIRED" });
@@ -224,7 +228,9 @@ describe("unified offline button state", () => {
         expect(login.attr("href")).toBe("https://115.com");
         expect(login.attr("target")).toBe("_blank");
         expect(login.attr("rel")).toContain("noopener");
-        expect(enabled.context.show.error).toHaveBeenCalledWith(expect.stringContaining("https://115.com"));
+        expect(enabled.context.show.error).toHaveBeenCalledWith("离线失败，请登录后重试");
+        expect(enabled.context.show.error.mock.calls.flat().join(" ")).not.toContain("https://115.com");
+        expect(enabled.plugin.diagnostics.recordError).toHaveBeenCalledWith(expect.objectContaining({ source: "offline-submit", message: authFailure.message, error: authFailure }));
         enabled.plugin.dispose();
         expect(enabled.$(".jhs-115-login-link")).toHaveLength(0);
 
@@ -319,7 +325,7 @@ describe("unified offline button state", () => {
         await plugin.submitResource({}, "magnet:?xt=urn:btih:missing-movie", button);
         expect(submit).not.toHaveBeenCalled();
         expect(stateService.appendOfflineHistory).not.toHaveBeenCalled();
-        expect(context.show.error).toHaveBeenCalledWith("无法确定影片身份，未执行离线操作");
+        expect(context.show.error).toHaveBeenCalledWith("未识别影片，未提交离线任务");
     });
 
     it("uses the declared dialog service when the user must select a provider", async () => {

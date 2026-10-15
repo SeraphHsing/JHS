@@ -43,7 +43,7 @@ describe("SubtitleCat Feature controller", () => {
         const scope = new LifecycleScope("feature:external-bridge"), notifications = { error: vi.fn() };
         new SubtitleCatController({ scope, notifications }).start();
         document.querySelector(".t-banner-inner").style.display = "grid";
-        expect(notifications.error).toHaveBeenCalledWith("该番号无字幕!");
+        expect(notifications.error).toHaveBeenCalledWith("未找到该番号的字幕");
         expect(document.querySelector(".sec-title").textContent).toBe("0 字幕");
         scope.dispose();
         expect(document.querySelector(".t-banner-inner").style.display).toBe("grid");

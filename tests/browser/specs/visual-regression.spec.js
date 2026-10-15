@@ -58,11 +58,20 @@ test("Settings cloud panel visual baseline", async ({ context, page }, testInfo)
   await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
   const dialog = page.locator(".layui-layer");
   await expect(dialog.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-  await dialog.locator('.side-menu-item[data-panel="cloud-services-panel"]').click();
+  await dialog.locator('.side-menu-item[data-panel="cloud-panel"]').click();
   const panel = dialog.locator("#cloud-services-panel");
   await expect(panel).toBeVisible();
   await expect(panel.locator("#cloud-settings-catalog .jhs-setting-row")).toHaveCount(7);
-  await expect(panel).toHaveScreenshot("settings-cloud.png", { maxDiffPixelRatio: 0.02 });
+  for (const key of ["general", "123", "115"]) {
+    const group = panel.locator(`[data-jhs-cloud-group="${key}"]`);
+    await group.evaluate(node => node.scrollIntoView({block:"center"}));
+    await group.screenshot({path:`../../output/ui-detail-regression/cloud-${key}-review.png`});
+    await expect(group).toBeInViewport({ratio:1});
+    await expect.soft(group).toHaveScreenshot(`settings-cloud-${key}.png`, { maxDiffPixelRatio: 0.02 });
+  }
+  await panel.locator("#oneOneFiveCacheMinutes").scrollIntoViewIfNeeded();
+  await expect(panel.locator("#oneOneFiveCacheMinutes")).toBeInViewport({ratio:1});
+  await expect(dialog.locator("#saveBtn")).toBeInViewport({ratio:1});
 });
 
 for (const theme of ["light", "dark"]) {

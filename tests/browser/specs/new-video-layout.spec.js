@@ -200,7 +200,7 @@ test("scheduler does not report a saved scan after another tab removes its actor
         disabledPlugins: ["NewVideoPlugin"],
         settingOverrides: { enableCheckBlacklist: "no", enableCheckFavoriteActress: "no", enableCheckNewVideo: "no" },
     });
-    await expect.poll(() => page.evaluate(() => Boolean(window.unsafeWindow.pluginManager.getBean("TaskPlugin")))).toBe(true);
+    await expect.poll(() => page.evaluate(() => Boolean(window.unsafeWindow.pluginManager.getBean("TaskPlugin")?.service))).toBe(true);
     const result = await page.evaluate(async () => {
         const task = window.unsafeWindow.pluginManager.getBean("TaskPlugin");
         const storage = window.unsafeWindow.storageManager;

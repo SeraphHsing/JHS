@@ -22,7 +22,7 @@ describe("compatibility enhancement Feature", () => {
     it("registers the confirmed ad-container rule only on JavDB and cleans idle work up", () => {
         const javdb = createController("javdb");
         javdb.controller.start();
-        expect(javdb.style.register).toHaveBeenCalledWith("feature-compatibility-ad-container", ".sda-content { display:none!important; }");
+        expect(javdb.style.register).toHaveBeenCalledWith("feature-compatibility-ad-container", ".sda-content { display:none!important; } .select:has(> .jhs-select-control)::after { display:none!important; content:none!important; }");
         expect(javdb.dom.window.requestIdleCallback).toHaveBeenCalledOnce();
         javdb.scope.dispose();
         expect(javdb.dom.window.cancelIdleCallback).toHaveBeenCalledWith(7);

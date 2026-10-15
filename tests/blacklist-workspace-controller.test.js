@@ -34,11 +34,13 @@ describe("BlacklistWorkspaceController", () => {
         const { controller, dom, $ } = createWorkspace();
         const button = $('<button id="checkBlacklistBtn"><span>检测</span></button>').appendTo(controller.blacklistRoot);
         Object.defineProperty(dom.window.navigator, "locks", { configurable: true, value: { request: async (_key, _options, callback) => callback({}) } });
-        controller.task = { singleTaskKey: "synthetic-blacklist", checkBlacklist: vi.fn(async () => { throw new Error("后台任务尚未就绪，请稍后重试"); }) };
+        const failure = new Error("后台任务尚未就绪，请稍后重试");
+        controller.task = { singleTaskKey: "synthetic-blacklist", checkBlacklist: vi.fn(async () => { throw failure; }) };
 
         await controller.runManualScan({ currentTarget: button[0] }, controller.dialogGeneration);
 
-        expect(controller.notifications.error).toHaveBeenCalledExactlyOnceWith("后台任务尚未就绪，请稍后重试");
+        expect(controller.notifications.error).toHaveBeenCalledExactlyOnceWith("黑名单更新失败，请重试");
+        expect(controller.logger.error).toHaveBeenCalledWith("黑名单任务执行失败", failure);
         expect(button.prop("disabled")).toBe(false);
         expect(button.attr("aria-busy")).toBeUndefined();
         expect(button.find("span").text()).toBe("检测");

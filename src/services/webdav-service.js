@@ -1,5 +1,9 @@
 // @ts-check
 
+import { JhsError } from "../core/jhs-error.js";
+
+const DOWNLOAD_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
 export class WebDavClient {
     /** @param {import("./http-service.js").HttpService} http @param {string} davUrl @param {string} username @param {string} password */
     constructor(http, davUrl, username, password) {
@@ -19,12 +23,16 @@ export class WebDavClient {
     /** @param {string} method @param {string} path @param {Record<string, string>} [headers] @param {unknown} [body] @param {Record<string, unknown>} [requestOptions] */
     async request(method, path, headers = {}, body, requestOptions = {}) {
         const url = new URL(path.replace(/^\/+/, ""), this.baseUrl);
-        const response = await this.http.request({
-            providerId: "webdav", method, url: url.href, headers: { ...this.authHeaders(), ...headers }, body,
-            responseType: "text", cacheScope: "none", ...requestOptions, timeout: 10_000,
-            urlPolicy: { trustClass: "user-local", expectedOrigin: this.baseUrl.origin },
-        });
+        const response = await this.#requestResponse(method, url, headers, body, requestOptions);
         return response.data ?? response.responseText ?? "";
+    }
+    /** Return response metadata while isolating anonymous download hops. @param {string} method @param {URL} url @param {Record<string, string>} headers @param {unknown} body @param {Record<string, unknown>} requestOptions @param {boolean} [anonymous] */
+    async #requestResponse(method, url, headers, body, requestOptions, anonymous = false) {
+        return this.http.request({
+            providerId: "webdav", method, url: url.href, headers: anonymous ? headers : { ...this.authHeaders(), ...headers }, body,
+            responseType: "text", cacheScope: "none", ...requestOptions, timeout: 10_000,
+            urlPolicy: { trustClass: anonymous ? "custom-public" : "user-local", expectedOrigin: anonymous ? url.origin : this.baseUrl.origin },
+        });
     }
     /** @param {string} folder */
     async ensureFolder(folder) {
@@ -70,7 +78,28 @@ export class WebDavClient {
     /** @param {string} folder */
     async getBackupList(folder) { this.folderName = folder; await this.ensureFolder(folder); return this.getFileList(folder); }
     /** @param {string} name */
-    async getFileContent(name) { return String(await this.request("GET", `${this.folderName}/${name}`, { Accept: "application/octet-stream" })); }
+    async getFileContent(name) {
+        let url = new URL(`${this.folderName}/${name}`.replace(/^\/+/, ""), this.baseUrl), anonymous = false;
+        const visited = new Set();
+        for (let redirects = 0; ; redirects++) {
+            url.hash = "";
+            if (visited.has(url.href)) throw new JhsError("INVALID_URL", "WebDAV 下载跳转形成循环", { source: "WebDavClient" });
+            visited.add(url.href);
+            const response = await this.#requestResponse("GET", url, { Accept: "application/octet-stream" }, undefined, {
+                requestOptions: { redirect: "manual", ...(anonymous ? { anonymous: true } : {}) },
+            }, anonymous);
+            const status = Number(response.status);
+            if (status >= 200 && status < 300) return String(response.data ?? response.responseText ?? "");
+            if (!DOWNLOAD_REDIRECT_STATUSES.has(status)) throw new JhsError("NETWORK_ERROR", "WebDAV 下载返回无效响应", { source: "WebDavClient", details: { status } });
+            if (redirects >= 5) throw new JhsError("INVALID_URL", "WebDAV 下载跳转次数超过限制", { source: "WebDavClient" });
+            const location = String(response.responseHeaders ?? "").match(/^location\s*:\s*(.+)$/im)?.[1]?.trim();
+            if (!location) throw new JhsError("INVALID_URL", "WebDAV 下载跳转缺少可读取的 Location", { source: "WebDavClient" });
+            try { url = new URL(location, url); }
+            catch { throw new JhsError("INVALID_URL", "WebDAV 下载跳转地址无效", { source: "WebDavClient" }); }
+            if (url.username || url.password) throw new JhsError("INVALID_URL", "WebDAV 下载跳转地址不能包含凭证", { source: "WebDavClient" });
+            anonymous ||= url.origin !== this.baseUrl.origin;
+        }
+    }
 }
 
 export class WebDavService {
@@ -84,15 +113,17 @@ export class WebDavService {
         const password = this.credential ? await this.credential.get("jhs_webdav_password") : "";
         return { url: String(settings.webDavUrl || ""), username: String(settings.webDavUsername || ""), password };
     }
-    /** Atomically coordinate the GM credential write with the settings update. */
-    async saveProfile(/** @type {Record<string, any>} */ patch = {}) {
+    /** Atomically coordinate the GM credential write with the settings update. @param {Record<string, any>} [patch] @param {(draft: Record<string, unknown>) => unknown} [updateSettings] */
+    async saveProfile(patch = {}, updateSettings) {
         if (!this.settings || !this.credential) throw new Error("WebDAV 配置服务未初始化");
+        if (updateSettings != null && typeof updateSettings !== "function") throw new TypeError("WebDAV settings updater must be a function");
         const previous = /** @type {{password: string}} */ (await this.getProfile());
         const passwordChanged = Object.prototype.hasOwnProperty.call(patch, "password");
         if (passwordChanged) await /** @type {any} */ (this.credential).set("jhs_webdav_password", String(patch.password || ""));
         try {
             await this.settings.update((draft) => {
                 for (const key of ["url", "username"]) if (Object.prototype.hasOwnProperty.call(patch, key)) draft[key === "url" ? "webDavUrl" : "webDavUsername"] = String(patch[key] || "");
+                return updateSettings?.(draft);
             });
         } catch (error) {
             if (passwordChanged) await /** @type {any} */ (this.credential).set("jhs_webdav_password", previous.password);

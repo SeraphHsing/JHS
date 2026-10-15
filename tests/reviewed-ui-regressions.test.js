@@ -31,12 +31,12 @@ describe("reviewed UI regressions", () => {
     it("does not submit a stale password when only the username was edited", async () => {
         const $ = setup('<div id="form"><input id="webDavUsername" value="new-user"><input id="webDavPassword" value="stale-password"></div>');
         const root = $("#form").data("jhsDirtyManualKeys", new Set(["webDavUsername"]));
-        const saveProfile = vi.fn(async () => {});
+        const saveProfile = vi.fn(async (_, update) => update({}));
         await saveSettingForm({
             settings: { snapshot: () => ({}), update: async fn => fn({}) }, webdav: { saveProfile },
             jquery: $, document: dom.window.document, legacyStorage: {}, utilities: {}, events: {}, logger: {},
         }, root);
-        expect(saveProfile).toHaveBeenCalledWith({ username: "new-user" });
+        expect(saveProfile).toHaveBeenCalledWith({ username: "new-user" }, expect.any(Function));
     });
     it("restores JavBus text without losing the host link", async () => {
         const $ = setup('<div class="item"><a href="/ABC-123"><img data-title="原題"><div class="video-title" title="原題">翻译标题</div></a></div>');

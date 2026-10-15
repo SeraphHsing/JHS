@@ -13,6 +13,8 @@ import { CacheService } from "../src/services/cache-service.js";
 import { assessMagnetQuality } from "../src/core/magnet-quality.js";
 import { Fc2Plugin } from "../src/plugins/external-search/fc2.js";
 import { Fc2WorkspaceService } from "../src/features/detail/fc2-workspace-service.js";
+import { acquirePageScrollLock } from "../src/core/page-scroll-lock.js";
+import { dismissActiveTooltip } from "../src/core/tooltip-controller.js";
 
 const repoRoot = join(import.meta.dirname, "..");
 const fc2Source = readTestFile(join(repoRoot, "src/features/detail/fc2-workspace-service.js"), "utf8");
@@ -32,7 +34,7 @@ const stateServiceSource = readTestFile(join(repoRoot, "src/core/state-service.j
 const titleFilterControllerSource = readTestFile(join(repoRoot, "src/features/library/title-keyword-controller.js"), "utf8");
 const highlightMagnetSource = readTestFile(join(repoRoot, "src/features/detail/magnet-filter-controller.js"), "utf8");
 const primitivesSource = readTestFile(join(repoRoot, "src/core/ui-primitives.js"), "utf8");
-const loggerSource = readTestFile(join(repoRoot, "src/core/logger.js"), "utf8");
+const loggerSource = readTestFile(join(repoRoot, "src/core/image-viewer.js"), "utf8");
 const top250Source = readTestFile(join(repoRoot, "src/features/discovery/top250-controller.js"), "utf8");
 
 function loadWorkspace() {
@@ -67,13 +69,14 @@ function loadWantApi({ encryptedToken = "encrypted", response = { success: 1 } }
 function loadImageViewer() {
     const dom = new JSDOM('<div id="gallery"><img src="a.jpg"><img src="b.jpg"></div>'), $ = jqueryFactory(dom.window), instances = [];
     class ViewerMock {
-        constructor(host, options) { this.host = host, this.options = options, this.viewerData = { width: 1000, height: 800 }, this.imageData = { width: 400, height: 200 }, this.zoomTo = vi.fn(), this.moveTo = vi.fn(), this.resize = vi.fn(), this.prev = vi.fn(), this.next = vi.fn(), this.destroy = vi.fn(), instances.push(this); }
+        constructor(host, options) { this.host = host, this.options = options, this.viewerData = { width: 1000, height: 800 }, this.imageData = { width: 400, height: 200, naturalWidth: 400, naturalHeight: 200 }, this.viewed = true, this.footer = dom.window.document.createElement("div"), this.zoomTo = vi.fn(), this.moveTo = vi.fn(), this.resize = vi.fn(), this.prev = vi.fn(), this.next = vi.fn(), this.destroy = vi.fn(), instances.push(this); }
         show() {}
         destroy() {}
     }
-    const marker = loggerSource.indexOf("}(), function() {", loggerSource.indexOf("unsafeWindow.show")), start = loggerSource.indexOf("function() {", marker), end = loggerSource.indexOf("}(), window.ImageHoverPreview", start), viewerIife = loggerSource.slice(start, end + 1), context = vm.createContext({ window: dom.window, document: dom.window.document, $, Viewer: ViewerMock, JHS_Z_INDEX: { viewer: 100 }, AbortController: dom.window.AbortController, MutationObserver: dom.window.MutationObserver, setTimeout: vi.fn() });
+    const viewerSource = loggerSource.replace(/^import .*;\r?\n/gm, "").replaceAll("export function", "function"), context = vm.createContext({ window: dom.window, document: dom.window.document, $, Viewer: ViewerMock, JHS_Z_INDEX: { viewer: 100 }, AbortController: dom.window.AbortController, MutationObserver: dom.window.MutationObserver, setTimeout: vi.fn() });
     const scopeSource = readFileSync(join(repoRoot, "src/core/lifecycle-scope.js"), "utf8").replace("export class", "class");
-    vm.runInContext(`${scopeSource}; const scope = new LifecycleScope("viewer-test"); globalThis.testScope=scope; (${viewerIife})();`, context);
+    Object.assign(context, { acquirePageScrollLock, dismissActiveTooltip });
+    vm.runInContext(`${scopeSource}; const scope = new LifecycleScope("viewer-test"); globalThis.testScope=scope; ${viewerSource}; window.showImageViewer = createImageViewer(scope);`, context);
     return { dom, instances, scope: context.testScope };
 }
 
@@ -170,24 +173,22 @@ describe("FC2 owned detail workspace", () => {
         expect(fc2StylesSource).toMatch(/\.jhs-fc2-workspace \{[^}]*grid-auto-rows:max-content;[^}]*align-content:start;/);
         expect(fc2StylesSource).toMatch(/\.jhs-fc2-gallery-grid \{[^}]*minmax\(112px,144px\)/);
         expect(fc2ViewSource).toContain('class="jhs-btn jhs-fc2-gallery-item"');
-        expect(fc2Source).toContain('showImageViewer(image, "", { galleryRoot: gallery[0] })');
+        expect(fc2Source).toContain('showImageViewer(image, "", { imageKind:"photo", galleryRoot: gallery[0], owner: context.root[0], trigger, scope })');
         expect(fc2Source).not.toContain('"data-fancybox"');
-        expect(loggerSource).toContain("initialViewIndex");
-        expect(loggerSource).toContain("prev: hasGallery ? 1 : 0");
-        expect(loggerSource).toContain("next: hasGallery ? 1 : 0");
-        expect(loggerSource).toContain('"ArrowLeft" === t.key');
-        expect(loggerSource).toContain('"ArrowRight" === t.key');
-        expect(loggerSource).toContain("o.moveTo(x, y)");
-        expect(loggerSource).not.toContain("o.moveTo(e, 0)");
+        expect(loggerSource).toContain("zoomOnWheel: true");
+        expect(loggerSource).toContain("slideOnTouch: false");
     });
 
     it("opens the selected gallery image with navigation and centers it in both axes", () => {
         const { dom, instances, scope } = loadImageViewer(), gallery = dom.window.document.querySelector("#gallery"), selected = gallery.querySelectorAll("img")[1];
         dom.window.showImageViewer(selected, "", { galleryRoot: gallery });
         const viewer = instances[0];
-        expect(viewer.host).toBe(gallery), expect(viewer.options.initialViewIndex).toBe(1), expect(viewer.options.toolbar.prev).toBe(1), expect(viewer.options.toolbar.next).toBe(1);
+        expect(viewer.host.querySelectorAll("img")).toHaveLength(2);
+        expect(viewer.options.initialViewIndex).toBe(1);
+        expect(viewer.options.zoomOnWheel).toBe(true);
         viewer.options.viewed();
-        expect(viewer.moveTo).toHaveBeenCalledWith(300, 300);
+        expect(viewer.zoomTo).toHaveBeenCalledWith(2.5);
+        expect(viewer.moveTo).toHaveBeenCalledWith(0, 150);
         scope.dispose(); dom.window.close();
     });
 
@@ -196,8 +197,7 @@ describe("FC2 owned detail workspace", () => {
         dom.window.showImageViewer(images[0]);
         dom.window.showImageViewer(images[1]);
         expect(instances[0].destroy).toHaveBeenCalledOnce();
-        instances[1].options.shown();
-        instances[0].options.shown(); instances[0].options.viewed(); instances[0].options.hidden();
+        instances[0].options.viewed(); instances[0].options.hidden();
         expect(instances[0].zoomTo).not.toHaveBeenCalled();
         expect(instances[1].destroy).not.toHaveBeenCalled();
         expect(dom.window.document.body.style.overflow).toBe("hidden");
@@ -211,18 +211,17 @@ describe("FC2 owned detail workspace", () => {
         const { dom, instances, scope } = loadImageViewer(), document = dom.window.document;
         document.body.innerHTML = '<div class="layui-layer"><div class="layui-layer-content"><div class="jhs-fc2-workspace"><div data-jhs-slot="gallery"><div id="gallery"><img src="https://example.test/a.jpg"><img src="https://example.test/b.jpg"></div><button><img id="sheet" src="https://example.test/sheet.jpg"></button></div></div></div></div>';
         const selected = document.querySelector("#sheet"), workspace = document.querySelector(".jhs-fc2-workspace");
-        dom.window.showImageViewer(selected);
+        dom.window.showImageViewer(selected, "", {imageKind:"contact-sheet"});
         const viewer = instances[0];
-        expect(viewer.host.closest(".layui-layer-content")).not.toBeNull();
-        expect(viewer.options.inline).toBe(true);
-        expect(viewer.options.initialViewIndex).toBe(2);
+        expect(viewer.host.parentElement).toBe(document.body);
+        expect(viewer.options.inline).not.toBe(true);
+        expect(viewer.options.initialViewIndex).toBe(0);
         expect(viewer.options.url).toBe("data-jhs-viewer-source");
-        expect([...viewer.host.querySelectorAll("img")].map(image => image.getAttribute(viewer.options.url))).toEqual(["https://example.test/a.jpg", "https://example.test/b.jpg", "https://example.test/sheet.jpg"]);
+        expect([...viewer.host.querySelectorAll("img")].map(image => image.getAttribute(viewer.options.url))).toEqual(["https://example.test/sheet.jpg"]);
         expect([...viewer.host.querySelectorAll("img")].every(image => image.src.startsWith("data:image/"))).toBe(true);
         expect(workspace.inert).toBe(true);
         viewer.options.viewed();
-        expect(viewer.zoomTo).not.toHaveBeenCalled();
-        expect(viewer.resize).toHaveBeenCalledOnce();
+        expect(viewer.zoomTo).toHaveBeenCalledWith(2.5);
         scope.dispose();
         expect(document.querySelector(".jhs-image-viewer-host")).toBeNull();
         expect(document.querySelector(".jhs-image-viewer-owner")).toBeNull();
@@ -235,7 +234,7 @@ describe("FC2 owned detail workspace", () => {
         dom.window.document.body.style.overflow="clip";
         for(let i=0;i<5;i++) {
             dom.window.showImageViewer("https://example.test/image.png");
-            instances[i].options.shown(); instances[i].options.hidden();
+             instances[i].options.hidden();
             expect(scope.cleanups.size).toBe(0);
             expect(dom.window.document.querySelectorAll(".temporary-container")).toHaveLength(0);
             expect(dom.window.document.body.style.overflow).toBe("clip");
@@ -246,7 +245,7 @@ describe("FC2 owned detail workspace", () => {
     it("renders screenshot-provider results as the smallest thumbnail until opened", () => {
         expect(fc2StylesSource).toMatch(/\.jhs-fc2-screenshot-thumbnail \{[^}]*width:112px;/);
         expect(screenshotPanelSource).toContain('class="jhs-btn jhs-fc2-gallery-item jhs-fc2-screenshot-thumbnail"');
-        expect(screenshotPanelSource).toContain("showImageViewer(image[0])");
+        expect(screenshotPanelSource).toContain("showImageViewer(image[0], \"\", { imageKind:\"contact-sheet\", owner: button[0]");
     });
 
     it("keeps state action buttons mounted while either summary renderer refreshes", () => {
@@ -309,7 +308,7 @@ describe("FC2 owned detail workspace", () => {
 
     it("restores source links, magnet metadata and scoped quality filtering", () => {
         expect(fc2ViewSource).toContain("FC2PPVDB");
-        expect(fc2ViewSource).toContain("FC2 市场");
+        expect(fc2ViewSource).toContain("${PRODUCT_NAMES.fc2} 市场");
         expect(fc2Source).toContain("item.hasHdTag && tags.append");
         expect(fc2Source).toContain("item.hasSubtitleTag && tags.append");
         expect(fc2Source).toContain("item.createdAt");
@@ -359,7 +358,7 @@ describe("FC2 owned detail workspace", () => {
         expect(fc2Source).not.toMatch(/catch\(\(error => [^{\n]*\), clog\.error/);
         expect(fc2By123AvSource).not.toMatch(/catch\(\(error => [^{\n]*\), clog\.error/);
         expect(fc2Source).toMatch(/catch\(\(\/\*\* @type \{unknown\} \*\/ error\) => \{\n\s+if \(!context\.isAlive\(\) \|\| generation !== context\.otherSiteGeneration\) return;\n\s+sitesGroup\.show\(\);/);
-        expect(fc2Source).toContain("renderFc2State(context.root.find('[data-jhs-role=\"other-sites\"]'), \"外部站点加载失败\")");
+        expect(fc2Source).toContain("renderFc2State(context.root.find('[data-jhs-role=\"other-sites\"]'), \"第三方站点加载失败\")");
         expect(fc2Source).toContain('catch((/** @type {unknown} */ error) => {');
     });
 

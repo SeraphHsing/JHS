@@ -4,6 +4,8 @@ import { escapeHtml } from "../../core/constants.js";
 import { createLatestSettingWriter } from "../settings/setting-binding-controller.js";
 import { readReviewKeywords } from "../../core/review-keywords.js";
 import { LifecycleScope } from "../../core/lifecycle-scope.js";
+import { getIcon } from "../../core/icons.js";
+import { createPanelLoading } from "./primitives.js";
 
 export class ReviewPanel {
     /** @param {{review: any, settings: any, storage: any, scope: () => Promise<any>, jquery?: (value: any) => any, document?: Document, window?: Window, ui?: any, clipboard?: any, notifications?: any, diagnostics?: any}} dependencies */
@@ -27,7 +29,7 @@ export class ReviewPanel {
         if (!isActive() || !target?.length) return jq([]);
         const existing = target.children('[data-jhs-panel="reviews"]').filter((/** @type {number} */ _index, /** @type {Element} */ element) => jq(element).attr("data-jhs-movie-id") === String(movieId)).first();
         if (existing.length) return existing;
-        const panel = jq('<section class="jhs-review-panel" data-jhs-panel="reviews"></section>').attr("data-jhs-movie-id", String(movieId));
+        const panel = jq('<section class="jhs-review-panel jhs-ui" data-jhs-panel="reviews"></section>').attr("data-jhs-movie-id", String(movieId));
         const header = jq('<header class="jhs-panel-header"><h3>评论</h3></header>');
         const toggle = jq('<button type="button" class="jhs-btn jhs-btn--secondary jhs-panel-toggle jhs-review-toggle"><span class="toggle-text"></span><span class="toggle-icon" aria-hidden="true"></span></button>');
         const parentScope = await this.scope(), panelScope = new LifecycleScope(`reviews:${movieId}`);
@@ -46,7 +48,7 @@ export class ReviewPanel {
             const next = value === "yes";
             if (state.enabled !== next) {
                 state.enabled = next; state.generation++;
-                if (!next) { state.requestScope?.dispose(); state.loading = false; }
+                if (!next) { state.requestScope?.dispose(); state.loading = false; panel.attr("aria-busy", "false"); }
             }
             this.updateToggle(toggle, next);
             panel.find(".jhs-review-container, .jhs-review-footer").toggle(next);
@@ -66,20 +68,24 @@ export class ReviewPanel {
             const desired = expanded ? "yes" : "no";
             void writeExpanded(desired);
         });
-        panelScope.addCleanup(() => { state.requestScope?.dispose(); toggle.off("click"); panel.off("contextmenu.jhsReviewFilter"); });
+        panelScope.addCleanup(() => { state.requestScope?.dispose(); panel.attr("aria-busy", "false"); toggle.off("click"); panel.off("contextmenu.jhsReviewFilter"); });
         const initialLoad = applyExpanded(enabled ? "yes" : "no");
         if (options.awaitInitialLoad !== false) await initialLoad;
         return panel;
     }
 
     /** @param {any} toggle @param {boolean} expanded */
-    updateToggle(toggle, expanded) { toggle.attr("aria-expanded", String(expanded)); toggle.find(".toggle-text").text(expanded ? "折叠" : "展开"); toggle.find(".toggle-icon").text(expanded ? "▲" : "▼"); }
+    updateToggle(toggle, expanded) {
+        toggle.attr("aria-expanded", String(expanded)); toggle.find(".toggle-text").text(expanded ? "折叠" : "展开");
+        const icon = toggle.find(".toggle-icon").empty();
+        icon[0]?.insertAdjacentHTML("beforeend", getIcon(expanded ? "chevron-up" : "chevron-down"));
+    }
 
     /** @param {any} state */
     async fetch(state) {
         if (state.loading || !state.enabled || !state.isActive()) return;
         const jq = this.jquery, container = state.panel.find(".jhs-review-container"), footer = state.panel.find(".jhs-review-footer");
-        state.loading = true; container.empty().append(jq('<div class="jhs-panel-state"></div>').text("获取评论中...")); footer.empty();
+        state.loading = true; state.panel.attr("aria-busy", "true"); container.empty().append(createPanelLoading(undefined, this.jquery)); footer.empty();
         const pageSize = Number(this.settings.snapshot().reviewCount) || 20, generation = state.generation;
         const scope = new LifecycleScope(`reviews:${state.movieId}:page:1`), release = state.panelScope.addCleanup(() => scope.dispose());
         state.requestScope = scope;
@@ -89,7 +95,7 @@ export class ReviewPanel {
             const keywords = await this.getKeywords();
             if (!state.isActive() || scope.signal.aborted || generation !== state.generation || !state.enabled) return;
             state.loading = false; state.loaded = true; container.empty();
-            if (!reviews.length) return void container.append(jq('<div class="jhs-panel-state"></div>').text("无评论"));
+            if (!reviews.length) return void container.append(jq('<div class="jhs-panel-state"></div>').text("暂无评论"));
             await this.display(state, reviews, container, keywords);
             if (reviews.length === pageSize) this.bindLoadMore(state, pageSize, keywords, container, footer); else footer.append(jq('<div class="jhs-panel-end"></div>').text("已加载全部评论"));
         } catch (error) {
@@ -97,7 +103,7 @@ export class ReviewPanel {
             if (!state.isActive() || scope?.signal?.aborted) return;
             this.reportError("获取评论失败", error);
             this.renderRetry(container, "获取评论失败", () => void this.fetch(state));
-        } finally { release(); if (state.requestScope === scope) state.requestScope = null; }
+        } finally { release(); if (generation === state.generation) { state.loading = false; state.panel.attr("aria-busy", "false"); } if (state.requestScope === scope) state.requestScope = null; }
     }
 
     async getKeywords() { return readReviewKeywords(this.storage); }
@@ -117,7 +123,7 @@ export class ReviewPanel {
         button.on("click", async () => {
             if (!state.enabled || !state.isActive() || state.loading) return;
             const nextPage = state.page + 1, generation = state.generation, scope = new LifecycleScope(`reviews:${state.movieId}:page:${nextPage}`), release = state.panelScope.addCleanup(() => scope.dispose());
-            state.requestScope = scope; state.loading = true; button.text("加载中...").prop("disabled", true);
+            state.requestScope = scope; state.loading = true; state.panel.attr("aria-busy", "true"); button.text("加载中…").attr("aria-busy", "true").prop("disabled", true);
             try {
                 const reviews = await this.review.list({ movieId: state.movieId }, { page: nextPage, limit: pageSize, scope });
                 if (!state.isActive() || scope.signal.aborted || generation !== state.generation || !state.enabled) return;
@@ -126,7 +132,7 @@ export class ReviewPanel {
             } catch (error) {
                 if (!state.isActive() || scope?.signal?.aborted) return;
                 this.reportError("加载更多评论失败", error); button.text("加载失败，请重试").prop("disabled", false);
-            } finally { release(); if (generation === state.generation) state.loading = false; if (state.requestScope === scope) state.requestScope = null; }
+            } finally { release(); button.attr("aria-busy", "false"); if (generation === state.generation) { state.loading = false; state.panel.attr("aria-busy", "false"); } if (state.requestScope === scope) state.requestScope = null; }
         });
     }
 
@@ -159,7 +165,7 @@ export class ReviewPanel {
         const jq = this.jquery, isEd2k = value.startsWith("ed2k://"), isMagnet = value.startsWith("magnet:"), label = isEd2k ? "ED2K 链接" : isMagnet ? "Magnet 链接" : "打开链接", isResource = isEd2k || isMagnet;
         const wrapper = jq(isResource ? '<span class="jhs-review-link-wrap"></span>' : '<span class="jhs-review-inline-controls"></span>'), main = jq('<span class="jhs-review-link-main"></span>');
         const copyResource = () => this.clipboard?.copyText?.(label, value) ?? /** @type {any} */ (globalThis).utils.copyToClipboard(label, value);
-        const open = isEd2k ? jq('<button type="button" class="jhs-btn jhs-review-link"></button>').text(label).on("click", copyResource) : jq("<a></a>").addClass("jhs-review-link").attr({ href: value, target: "_blank", rel: "noopener noreferrer" }).text(label);
+        const open = isEd2k ? jq('<button type="button" class="jhs-btn jhs-review-link"></button>').text(label).on("click", copyResource) : jq("<a></a>").addClass("jhs-review-link jhs-link").attr({ href: value, target: "_blank", rel: "noopener noreferrer" }).text(label);
         const copy = jq('<button type="button" class="jhs-btn jhs-review-link jhs-review-link-copy">复制</button>').on("click", copyResource);
         main.append(open, copy); wrapper.append(main);
         if (isResource) wrapper.append(jq('<span class="jhs-review-link-actions"></span>').append(jq('<button type="button" class="jhs-btn jhs-review-link jhs-review-offline-btn jhs-offline-btn">离线</button>').attr("data-resource", value)));
@@ -172,8 +178,8 @@ export class ReviewPanel {
             if ((this.settings.snapshot().enableTitleSelectFilter ?? "yes") !== "yes") return;
             const text = String(this.window.getSelection()?.toString() || ""); if (!text) return;
             event.preventDefault();
-            const confirm = this.ui?.confirm ?? ((/** @type {any} */ position, /** @type {string} */ message, /** @type {() => unknown} */ callback) => /** @type {any} */ (globalThis).utils.q(position, message, callback));
-            await confirm(event, `是否将 '${escapeHtml(text)}' 加入评论区关键词?`, async () => { await this.saveKeyword(text); this.notify("ok", "操作成功, 刷新页面后生效"); });
+            const confirm = this.ui?.confirm ?? ((/** @type {any} */ position, /** @type {string} */ message, /** @type {() => unknown} */ callback, /** @type {any} */ options) => /** @type {any} */ (globalThis).utils.q(position, message, callback, undefined, options));
+            await confirm(event, `屏蔽评论关键词「${escapeHtml(text)}」？<br>刷新页面后生效`, async () => { await this.saveKeyword(text); this.notify("ok", "已屏蔽，刷新页面后生效"); }, { confirmText: "屏蔽" });
         });
     }
 

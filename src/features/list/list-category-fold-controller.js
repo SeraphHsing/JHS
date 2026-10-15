@@ -1,6 +1,7 @@
 // @ts-check
 
 import { createLatestSettingWriter } from "../../ui/settings/setting-binding-controller.js";
+import { getIcon } from "../../core/icons.js";
 
 const HIGHLIGHTED_TAGS_KEY = "highlighted_tags";
 const TAG_SELECTOR = "#tags a.tag, .tags a.tag";
@@ -57,7 +58,7 @@ export class ListCategoryFoldController {
         const width = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : 1;
         const rawColor = typeof settings.highlightedTagColor === "string" ? settings.highlightedTagColor : "";
         const color = /^#[\da-f]{3,8}$/iu.test(rawColor) ? rawColor : "var(--jhs-status-filter)";
-        const css = `#tags a.tag,.tags a.tag{position:relative}.highlight-btn{position:absolute;top:-10px;right:-10px;background-color:var(--jhs-status-down);color:var(--jhs-status-down-on);border:0;border-radius:50%;width:24px;height:24px;font-size:14px;line-height:24px;text-align:center;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,.2);display:none;z-index:var(--jhs-z-dropdown)}.highlighted .highlight-btn{background-color:var(--jhs-status-watch)}#tags a.tag:hover .highlight-btn,#tags a.tag:focus-within .highlight-btn,.tags a.tag:hover .highlight-btn,.tags a.tag:focus-within .highlight-btn{display:block}.highlighted{border:${width}px solid ${color}}`;
+        const css = `#tags a.tag,.tags a.tag{position:relative}.highlight-btn{position:absolute;top:calc(-1 * var(--jhs-space-2));right:calc(-1 * var(--jhs-space-2));padding:0;background-color:var(--jhs-status-down);color:var(--jhs-status-down-on);border:0;border-radius:50%;width:var(--jhs-icon-lg);height:var(--jhs-icon-lg);min-width:var(--jhs-icon-lg);min-height:var(--jhs-icon-lg);line-height:var(--jhs-line-height-tight);text-align:center;cursor:pointer;box-shadow:var(--jhs-shadow-xs);display:none;z-index:var(--jhs-z-dropdown)}.highlighted .highlight-btn{background-color:var(--jhs-status-watch)}#tags a.tag:hover .highlight-btn,#tags a.tag:focus-within .highlight-btn,.tags a.tag:hover .highlight-btn,.tags a.tag:focus-within .highlight-btn{display:inline-flex}.highlighted{border:${width}px solid ${color}}@media(max-width:767px),(pointer:coarse){.highlight-btn{width:var(--jhs-touch-target);height:var(--jhs-touch-target);min-width:var(--jhs-touch-target);min-height:var(--jhs-touch-target)}}`;
         try { this.releaseStyles = this.styles.register("jhs-list-category-fold-feature", css); }
         catch (error) { this.reportError("分类高亮样式注册失败", error); }
     }
@@ -108,7 +109,7 @@ export class ListCategoryFoldController {
         button.className = "jhs-btn highlight-btn";
         button.title = "高亮显示";
         button.setAttribute("aria-label", "高亮显示分类");
-        button.textContent = "★";
+        button.insertAdjacentHTML("beforeend", getIcon("star"));
         return button;
     }
 

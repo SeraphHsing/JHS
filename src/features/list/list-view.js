@@ -1,7 +1,9 @@
 // @ts-check
 
+import { OwnedPopover } from "../../core/owned-popover.js";
 import { normalizeStateFlags } from "../../core/state-model.js";
 import { safePlay } from "../../core/feature-helpers.js";
+import { getIcon } from "../../core/icons.js";
 import { PRIMARY_QUICK_FILTERS, QUICK_FILTER_LABELS, SECONDARY_QUICK_FILTERS, normalizeQuickFilterKey, shouldShowItem } from "./list-filters.js";
 
 /** @param {string} value @param {any} fallback */
@@ -20,6 +22,7 @@ export class ListView {
         this.onOpenMovieDetail = options.onOpenMovieDetail ?? (() => {});
         /** @type {ReturnType<typeof normalizeQuickFilterKey>} */ this.activeFilter = "waitCheck";
         /** @type {any} */ this.quickFilterRoot = null;
+        /** @type {OwnedPopover | null} */ this.filterPopover = null;
         /** @type {any} */ this.navigationRoot = null;
         /** @type {any} */ this.videoRoot = null;
     }
@@ -49,16 +52,17 @@ export class ListView {
             markup = `<div id="jhs-quick-filter" class="jhs-quick-filter">
                 <div class="jhs-quick-filter__primary jhs-segmented" role="tablist" aria-label="状态筛选">${primaryHtml}</div>
                 <div class="jhs-quick-filter__more">
-                    <button type="button" class="jhs-btn jhs-btn--secondary jhs-quick-filter__toggle" aria-haspopup="menu" aria-expanded="false"><span class="jhs-quick-filter__label">更多筛选</span> ▾</button>
+                    <button type="button" class="jhs-btn jhs-btn--secondary jhs-quick-filter__toggle" aria-haspopup="menu" aria-expanded="false"><span class="jhs-quick-filter__label">更多筛选</span>${getIcon("chevron-down")}</button>
                     <div class="jhs-popover jhs-commandbar__menu jhs-quick-filter__menu" role="menu" aria-label="更多筛选">${secondaryHtml}</div>
                 </div>
             </div>`,
             box = $(this.selectors.boxSelector).first();
         if (!box.length) return;
         box.before(markup);
-        const root = $("#jhs-quick-filter"), toggle = root.find(".jhs-quick-filter__toggle"), menu = root.find(".jhs-quick-filter__menu"), closeMenu = (restoreFocus = false) => {
-            menu.removeClass("is-open"), toggle.attr("aria-expanded", "false"), restoreFocus && toggle.trigger("focus");
-        };
+        const root = $("#jhs-quick-filter"), toggle = root.find(".jhs-quick-filter__toggle"), menu = root.find(".jhs-quick-filter__menu");
+        const popover = new OwnedPopover(toggle[0], menu[0]);
+        this.filterPopover = popover;
+        const closeMenu = (restoreFocus = false) => popover.close(restoreFocus);
         root.off(".jhsListView")
             .on("click.jhsListView", ".jhs-segmented__item", ((/** @type {any} */ event) => this.selectFilter($(event.currentTarget).data("jhs-filter"))))
             .on("keydown.jhsListView", ".jhs-segmented__item", ((/** @type {any} */ event) => {
@@ -66,8 +70,8 @@ export class ListView {
                 event.preventDefault();
                 const tabs = root.find(".jhs-segmented__item"), index = tabs.index(event.currentTarget), next = "Home" === event.key ? 0 : "End" === event.key ? tabs.length - 1 : "ArrowRight" === event.key ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length;
                 tabs.eq(next).trigger("click").trigger("focus");
-            }))
-            .on("click.jhsListView", ".jhs-filter-option", ((/** @type {any} */ event) => {
+            }));
+        menu.off(".jhsListView").on("click.jhsListView", ".jhs-filter-option", ((/** @type {any} */ event) => {
                 this.selectFilter($(event.currentTarget).data("jhs-filter"));
                 closeMenu(true);
             }))
@@ -81,12 +85,8 @@ export class ListView {
             }));
         toggle.off(".jhsListView").on("click.jhsListView", ((/** @type {any} */ event) => {
             event.preventDefault(), event.stopPropagation();
-            const open = !menu.hasClass("is-open");
-            menu.toggleClass("is-open", open), toggle.attr("aria-expanded", String(open));
-            if (open) (menu.find('[aria-checked="true"]').first().length ? menu.find('[aria-checked="true"]').first() : menu.find(".jhs-filter-option").first()).trigger("focus");
-        }));
-        $(document).off("click.jhsQuickFilter").on("click.jhsQuickFilter", ((/** @type {any} */ event) => {
-            $(event.target).closest(root).length || closeMenu();
+            if (popover.opened) closeMenu();
+            else popover.open((menu.find('[aria-checked="true"]').first().length ? menu.find('[aria-checked="true"]').first() : menu.find(".jhs-filter-option").first())[0]);
         }));
         this.quickFilterRoot = root;
         this.syncQuickFilterUi(initialFilter);
@@ -95,7 +95,7 @@ export class ListView {
 
     /** @param {unknown} filter */
     syncQuickFilterUi(filter) {
-        const normalizedFilter = normalizeQuickFilterKey(filter), isPrimary = PRIMARY_QUICK_FILTERS.includes(normalizedFilter), root = this.quickFilterRoot?.length ? this.quickFilterRoot : $("#jhs-quick-filter"), tabs = root.find(".jhs-segmented__item"), options = root.find(".jhs-filter-option");
+        const normalizedFilter = normalizeQuickFilterKey(filter), isPrimary = PRIMARY_QUICK_FILTERS.includes(normalizedFilter), root = this.quickFilterRoot?.length ? this.quickFilterRoot : $("#jhs-quick-filter"), tabs = root.find(".jhs-segmented__item"), options = this.filterPopover ? $(this.filterPopover.menu).find(".jhs-filter-option") : root.find(".jhs-filter-option");
         this.activeFilter = normalizedFilter;
         tabs.removeClass("active").attr({ "aria-selected": "false", tabindex: "-1" });
         isPrimary ? tabs.filter(`[data-jhs-filter="${normalizedFilter}"]`).addClass("active").attr({ "aria-selected": "true", tabindex: "0" }) : tabs.first().attr("tabindex", "0");
@@ -136,16 +136,19 @@ export class ListView {
     bindCardVideoPlayback(container) {
         const root = $(container);
         root.off("click.jhsListVideo", ".item video").on("click.jhsListVideo", ".item video", (async (/** @type {any} */ event) => {
+            event.preventDefault();
+            event.stopPropagation();
             const video = /** @type {HTMLVideoElement} */ (event.currentTarget);
             if (video.paused) await safePlay(video, { context: "列表视频", notify: true });
             else video.pause();
-            event.preventDefault();
-            event.stopPropagation();
         }));
         this.videoRoot = root;
     }
 
     dispose() {
+        this.filterPopover?.close();
+        if (this.filterPopover) $(this.filterPopover.menu).off(".jhsListView");
+        this.filterPopover = null;
         this.quickFilterRoot?.off(".jhsListView"), this.navigationRoot?.off("click.jhsMovieDetail auxclick.jhsMovieDetail", ".item img, .item .video-title");
         this.videoRoot?.off("click.jhsListVideo", ".item video");
         typeof document !== "undefined" && typeof $ === "function" && $(document).off("click.jhsQuickFilter");

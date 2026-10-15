@@ -31,7 +31,7 @@ describe("ListBatchUi", () => {
         dialog.confirm.mockImplementation((_message, value, yes) => { options = value; accept = yes; return 7; });
 
         const accepted = ui.confirm("确认合成批处理?");
-        expect(dialog.confirm).toHaveBeenCalledWith("确认合成批处理?", expect.objectContaining({ btn: [ "确定", "取消" ], shade: 0 }), expect.any(Function));
+        expect(dialog.confirm).toHaveBeenCalledWith("确认合成批处理?", expect.objectContaining({ confirmText: "开始处理", cancelText: "取消", shade: 0 }), expect.any(Function));
         accept(7);
         options.end();
         await expect(accepted).resolves.toBe(true);

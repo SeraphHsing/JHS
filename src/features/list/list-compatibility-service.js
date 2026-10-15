@@ -2,6 +2,7 @@
 
 import { B, C, _, b, escapeHtml, k, l, normalizeCarNum, o, r, u, y } from "../../core/constants.js";
 import { mapLimit, safePlay } from "../../core/feature-helpers.js";
+import { getIcon } from "../../core/icons.js";
 import { requestHostPage } from "../../core/host-page-request.js";
 import { readCardNames, readListItem } from "../../core/list-item-reader.js";
 import { classifyJavDbPage } from "../../core/site-context.js";
@@ -367,7 +368,7 @@ export class ListPageCompatibilityService {
             t = `<div id="jhs-quick-filter" class="jhs-quick-filter">
                 <div class="jhs-quick-filter__primary jhs-segmented" role="tablist" aria-label="状态筛选">${primaryHtml}</div>
                 <div class="jhs-quick-filter__more">
-                    <button type="button" class="jhs-btn jhs-btn--secondary jhs-quick-filter__toggle" aria-haspopup="menu" aria-expanded="false"><span class="jhs-quick-filter__label">更多筛选</span> ▾</button>
+                    <button type="button" class="jhs-btn jhs-btn--secondary jhs-quick-filter__toggle" aria-haspopup="menu" aria-expanded="false"><span class="jhs-quick-filter__label">更多筛选</span>${getIcon("chevron-down")}</button>
                     <div class="jhs-popover jhs-commandbar__menu jhs-quick-filter__menu" role="menu" aria-label="更多筛选">${secondaryHtml}</div>
                 </div>
             </div>`;
@@ -699,10 +700,10 @@ export class ListPageCompatibilityService {
         if (!this.listView) {
             this.bindMovieDetailNavigation(e.boxSelector);
             $(e.boxSelector).off("click.jhsListVideo").on("click.jhsListVideo", ".item video", (async (/** @type {any} */ event) => {
-                const video = event.currentTarget;
-                video.paused ? await safePlay(video, { context: "列表视频", notify: !0 }) : video.pause();
                 event.preventDefault();
                 event.stopPropagation();
+                const video = event.currentTarget;
+                video.paused ? await safePlay(video, { context: "列表视频", notify: !0 }) : video.pause();
             }));
         }
         if (this.featureListContextMenuAdapter) $(e.boxSelector).off("contextmenu.jhsListMenu");
@@ -711,11 +712,11 @@ export class ListPageCompatibilityService {
                 e.preventDefault();
                 const t = $(e.target).closest(".item"), {carNum: n, url: a, publishTime: i, fc2Source} = this.findCarNumAndHref(t);
                 let s = r ? $(".actor-section-name") : $(".avatar-box .photo-info .pb10"), o = "";
-                s.length && (o = s.text().trim().split(",")[0].replace("(無碼)", "")), utils.q(e, `是否屏蔽番号 ${escapeHtml(n)}?`, (async () => {
+                s.length && (o = s.text().trim().split(",")[0].replace("(無碼)", "")), utils.q(e, `屏蔽「${escapeHtml(n)}」？`, (async () => {
                     try {
-                        o || (o = await this.parseActressName(a)), await this.getRuntimeService("state").patch(n, { blocked: !0 }, { record: { carNum: n, url: a, names: o, publishTime: i, fc2Source } }), show.ok("操作成功");
-                    } catch (s) { this.logger.error("屏蔽操作失败:", s), show.error("操作失败"); }
-                }));
+                        o || (o = await this.parseActressName(a)), await this.getRuntimeService("state").patch(n, { blocked: !0 }, { record: { carNum: n, url: a, names: o, publishTime: i, fc2Source } }), show.ok("已屏蔽");
+                    } catch (s) { this.logger.error("屏蔽操作失败:", s), show.error("屏蔽失败，请重试"); }
+                }), undefined, { confirmText: "屏蔽" });
             } catch (t) { this.logger.error("右键菜单处理失败:", t); }
         }));
     }

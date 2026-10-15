@@ -3,6 +3,7 @@ import jqueryFactory from "jquery";
 import { JSDOM } from "jsdom";
 import { ListView } from "../src/features/list/list-view.js";
 import { ListController } from "../src/features/list/list-controller.js";
+import { ListPageCompatibilityService } from "../src/features/list/list-compatibility-service.js";
 import { JavBusHostAdapter } from "../src/platform/hosts/javbus-host-adapter.js";
 import { JavDbHostAdapter } from "../src/platform/hosts/javdb-host-adapter.js";
 
@@ -38,6 +39,9 @@ describe("ListView", () => {
         expect($("#pending").css("display")).toBe("none");
         expect($("#blocked").css("display")).toBe("none");
         expect($("[data-jhs-filter=favorite]").attr("aria-selected")).toBe("true");
+        expect($("[data-jhs-filter=hasDown]").text()).toBe("已下载");
+        expect($("[data-jhs-filter=hasWatch]").text()).toBe("已观看");
+        expect($(".jhs-quick-filter__toggle [data-jhs-icon=chevron-down]")).toHaveLength(1);
         expect(view.getActiveFilter()).toBe("favorite");
 
         view.syncQuickFilterUi("blockedItems");
@@ -162,6 +166,37 @@ describe("ListView", () => {
         $(video).trigger("click");
         expect(play).toHaveBeenCalledOnce();
         expect(pause).toHaveBeenCalledOnce();
+    });
+
+    it.each(["ListView", "compatibility fallback"])("cancels a native video click synchronously while playback is pending: %s", async (binding) => {
+        const { dom, $, view } = createHarness();
+        const video = document.createElement("video"), root = $(".movie-list");
+        $("#pending").append(video);
+        let resolvePlay;
+        video.play = vi.fn(() => new Promise((resolve) => { resolvePlay = resolve; }));
+        Object.defineProperty(video, "paused", { configurable: true, value: true });
+        const hostClick = vi.fn();
+        dom.window.document.addEventListener("click", hostClick);
+        if (binding === "ListView") view.bindCardVideoPlayback(root);
+        else {
+            const service = Object.assign(Object.create(ListPageCompatibilityService.prototype), {
+                listView: null, featureListContextMenuAdapter: {},
+                getSelector: () => ({ boxSelector: ".movie-list" }), bindMovieDetailNavigation: vi.fn(),
+            });
+            await service.bindClick();
+        }
+
+        const event = new dom.window.MouseEvent("click", { bubbles: true, cancelable: true });
+        expect(video.dispatchEvent(event)).toBe(false);
+        expect(event.defaultPrevented).toBe(true);
+        expect(hostClick).not.toHaveBeenCalled();
+        expect(video.play).toHaveBeenCalledOnce();
+        resolvePlay();
+        await Promise.resolve();
+        await Promise.resolve();
+        root.off(".jhsListVideo");
+        dom.window.document.removeEventListener("click", hostClick);
+        view.dispose();
     });
 
     it("returns the release selectors from both supported host adapters", () => {

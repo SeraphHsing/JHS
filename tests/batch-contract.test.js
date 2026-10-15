@@ -23,7 +23,7 @@ describe("batch action contract (筛选后批量语义)", () => {
     });
 
     it("confirms with filter-aware copy for all and other filters", () => {
-        expect(listBatch).toContain("将处理当前搜索全部分页的所有作品，包括屏蔽项。");
+        expect(listBatch).toContain("将处理当前搜索全部分页的所有影片，包括屏蔽项。");
         expect(listBatch).toContain("将处理当前搜索全部分页中符合「");
         expect(blacklist).toContain("return this.batchAllVideos(name, options)");
     });

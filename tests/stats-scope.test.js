@@ -55,6 +55,70 @@ afterEach(() => {
 });
 
 describe("Stats Feature scope semantics", () => {
+    it("keeps a reopened dialog owned when an old end callback repeats", async () => {
+        currentHarness = createHarness();
+        const { controller, dialog } = currentHarness;
+        await controller.openDialog();
+        const first = dialog.open.mock.calls[0][0];
+        first.end();
+        await controller.openDialog();
+        first.end();
+        expect(dialog.open).toHaveBeenCalledTimes(2);
+        expect(controller.dialogId).toBe(12);
+    });
+
+    it("merges opens while the library snapshot is pending", async () => {
+        currentHarness = createHarness();
+        const { controller, dialog } = currentHarness;
+        let finish;
+        controller.libraryStats.loadSnapshot.mockImplementation(() => new Promise(resolve => finish = resolve));
+        const first = controller.openDialog(), second = controller.openDialog();
+        expect(controller.libraryStats.loadSnapshot).toHaveBeenCalledOnce();
+        finish({ cars: [], actresses: [], blacklist: [], activity: { entries: [] } });
+        await Promise.all([first, second]);
+        expect(dialog.open).toHaveBeenCalledOnce();
+        expect(controller.dialogId).toBe(12);
+    });
+
+    it.each(["snapshot", "page-summary"])("does not open after disposal during %s loading", async phase => {
+        currentHarness = createHarness();
+        const { controller, dialog, listPage } = currentHarness;
+        let finish;
+        if (phase === "snapshot") controller.libraryStats.loadSnapshot.mockImplementation(() => new Promise(resolve => finish = () => resolve({ cars: [], actresses: [], blacklist: [], activity: { entries: [] } })));
+        else listPage.getCurrentPageSummary.mockImplementation(() => new Promise(resolve => finish = () => resolve({ blockedItems: 0 })));
+        const loading = controller.openDialog();
+        await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+        controller.dispose(); finish(); await loading;
+        expect(dialog.open).not.toHaveBeenCalled();
+        expect(controller.dialogId).toBeNull();
+    });
+
+    it("permits a retry after a failed pending snapshot", async () => {
+        currentHarness = createHarness();
+        const { controller, dialog } = currentHarness;
+        controller.libraryStats.loadSnapshot.mockRejectedValueOnce(new Error("snapshot unavailable"));
+        await expect(controller.openDialog()).rejects.toThrow("snapshot unavailable");
+        await controller.openDialog();
+        expect(dialog.open).toHaveBeenCalledOnce();
+    });
+
+    it("keeps unnamed actor IDs in links while rendering product labels", async () => {
+        currentHarness = createHarness();
+        const { controller, document } = currentHarness;
+        controller.libraryStats.loadSnapshot.mockResolvedValueOnce({
+            cars: [{ starId: "internal-actor-id", stateFlags: { downloaded: true, watched: true } }],
+            actresses: [], blacklist: [], activity: { entries: [], coverageStart: null },
+        });
+        await controller.openDialog();
+        const stats = document.querySelector(".jhs-stats");
+        expect(stats.textContent).toContain("未命名演员");
+        expect(stats.textContent).not.toContain("internal-actor-id");
+        expect(stats.querySelector("a.jhs-stats__label")?.href).toBe("https://javdb.com/actors/internal-actor-id");
+        expect(stats.textContent).toContain("已下载");
+        expect(stats.textContent).toContain("已观看");
+        expect(stats.textContent).toContain("待鉴定");
+    });
+
     it("keeps full-library metrics static and only exposes scope-matched actions", async () => {
         currentHarness = createHarness();
         const { document, controller, dialog, listPage } = currentHarness;

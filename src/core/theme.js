@@ -12,6 +12,7 @@ export const JHS_Z_INDEX = Object.freeze({
     fabBackdrop: 12345691,
     fabMenu: 12345692,
     fab: 12345693,
+    pagePopover: 12345694,
     debugLow: 12345678,
     hostNav: 12345679,
     hostTopbar: 12345689,
@@ -31,25 +32,45 @@ export const JHS_Z_INDEX = Object.freeze({
 
 export function buildThemeCss() {
   return `\n<style>\n    :root {\n        /* 字体 */
-        --jhs-font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        --jhs-font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+        --jhs-font-mono: Consolas, Monaco, "Andale Mono", monospace;
+        --jhs-font-weight-normal: 400;
+        --jhs-font-weight-semibold: 600;
+        --jhs-line-height-tight: 1.3;
+        --jhs-line-height-ui: 1.5;
+        --jhs-line-height-read: 1.7;
 
         /* 中性色 */
         --jhs-bg: #f4f6f9;
+        --jhs-color-scheme: light;
         --jhs-surface: #ffffff;
         --jhs-surface-2: #f2f4f8;
         --jhs-surface-hover: #e9edf4;
-        --jhs-focus: #3b6ea5;
+        --jhs-focus: var(--jhs-accent);
+        --jhs-focus-ring: 0 0 0 2px var(--jhs-accent);
         --jhs-border: #e3e7ee;
-        --jhs-border-strong: #8a94a6;
+        --jhs-border-strong: #7d899c;
         --jhs-text: #1f2733;
         --jhs-text-muted: #5b6b7c;
-        --jhs-text-faint: #637183;
+        --jhs-text-faint: var(--jhs-text-muted);
+        --jhs-text-disabled: #8a94a6;
         --jhs-input-bg: #f2f4f8;
-        --jhs-placeholder: #637183;
-        --jhs-disabled-bg: #f2f4f8;
-        --jhs-disabled-text: #637183;
+        --jhs-placeholder: var(--jhs-text-muted);
+        --jhs-disabled-bg: var(--jhs-surface-2);
+        --jhs-disabled-text: var(--jhs-text-disabled);
+        --jhs-loading-overlay: rgba(244, 246, 249, .6);
+        --jhs-overlay: rgba(20, 24, 29, .72);
+        --jhs-overlay-hover: rgba(20, 24, 29, .9);
+        --jhs-overlay-icon: #ffffff;
+        --jhs-overlay-text: var(--jhs-overlay-icon);
+        --jhs-media-bg: #000000;
+        --jhs-media-shadow: 0 0 12px rgba(0, 0, 0, .5);
+        --jhs-preview-scrim: rgba(0, 0, 0, .03);
+        --jhs-success: #387213;
+        --jhs-success-tint: #eff8e6;
 
         /* 间距 / 排版 / 控件尺寸 */
+        --jhs-space-half: 2px;
         --jhs-space-1: 4px;
         --jhs-space-2: 8px;
         --jhs-space-3: 12px;
@@ -64,6 +85,11 @@ export function buildThemeCss() {
         --jhs-control-height-sm: 32px;
         --jhs-control-height: 36px;
         --jhs-touch-target: 44px;
+        --jhs-icon-sm: 16px;
+        --jhs-icon-md: 18px;
+        --jhs-icon-lg: 24px;
+        --jhs-icon-hero: var(--jhs-icon-lg);
+        --jhs-tooltip-max-width: 320px;
         --jhs-motion-fast: 120ms;
         --jhs-motion-base: 180ms;
         --jhs-ease: cubic-bezier(.2, 0, 0, 1);
@@ -73,6 +99,7 @@ export function buildThemeCss() {
         --jhs-z-elevated: ${JHS_Z_INDEX.elevated};
         --jhs-z-local-popover: ${JHS_Z_INDEX.localPopover};
         --jhs-z-popover: ${JHS_Z_INDEX.popover};
+        --jhs-z-page-popover: ${JHS_Z_INDEX.pagePopover};
         --jhs-z-dropdown: ${JHS_Z_INDEX.dropdown};
         --jhs-z-fab-backdrop: ${JHS_Z_INDEX.fabBackdrop};
         --jhs-z-fab-menu: ${JHS_Z_INDEX.fabMenu};
@@ -132,6 +159,15 @@ export function buildThemeCss() {
         /* 品牌色 (第三方站点来源标识, 保持可辨识) */
         --jhs-brand-javdb: #c23a85;
         --jhs-brand-javbus: #967004;
+        --jhs-site-javtrailers: #d4a72c;
+        --jhs-site-av123: #e05d44;
+        --jhs-site-jable: #c94556;
+        --jhs-site-avgle: #4677c8;
+        --jhs-site-missav: #8b5cf6;
+        --jhs-site-supjav: #ef6c35;
+        --jhs-site-javdb: #2684ff;
+        --jhs-site-javbus: #cc3d3d;
+        --jhs-site-dmm: #ea4c89;
 
         /* 代码查看器 (终端语义, 亮暗一致, 不随主题) */
         --jhs-code-bg: #1e1e1e;
@@ -142,7 +178,7 @@ export function buildThemeCss() {
         --jhs-radius-xs: 6px;
         --jhs-radius-sm: 8px;
         --jhs-radius-md: 12px;
-        --jhs-radius-lg: 14px;
+        --jhs-radius-lg: 16px;
         --jhs-radius-pill: 999px;
 
         /* 阴影: 与背景同色相 */
@@ -157,19 +193,20 @@ export function buildThemeCss() {
 
     :root[data-jhs-theme="dark"] {
         --jhs-bg: #14181d;
+        --jhs-color-scheme: dark;
         --jhs-surface: #1d232b;
         --jhs-surface-2: #262d37;
         --jhs-surface-hover: #2e3642;
-        --jhs-focus: #7cb8e8;
+        --jhs-focus: var(--jhs-accent);
         --jhs-border: #333c47;
-        --jhs-border-strong: #64728a;
+        --jhs-border-strong: #72819a;
         --jhs-text: #e6ebf1;
         --jhs-text-muted: #9aa7b6;
-        --jhs-text-faint: #9cacbd;
+        --jhs-text-disabled: #64728a;
         --jhs-input-bg: #262d37;
-        --jhs-placeholder: #9cacbd;
-        --jhs-disabled-bg: #262d37;
-        --jhs-disabled-text: #9cacbd;
+        --jhs-loading-overlay: rgba(20, 24, 29, .6);
+        --jhs-success: #93d357;
+        --jhs-success-tint: #25341a;
 
         --jhs-accent: #7ca6d4;
         --jhs-accent-hover: #8db3de;
@@ -221,19 +258,7 @@ export function buildThemeCss() {
         --jhs-icon-color: #9aa7b6;
     }
 
-    /* JHS 表面输入框基座 + placeholder + 禁用态 (亮暗一致, 作用域限定 JHS 表面) */
-    .jhs-ui input[type="text"],
-    .jhs-ui input[type="number"],
-    .jhs-ui textarea,
-    .jhs-ui select,
-    .jhs-dialog .layui-layer-content input[type="text"],
-    .jhs-dialog .layui-layer-content input[type="number"],
-    .jhs-dialog .layui-layer-content textarea,
-    .jhs-dialog .layui-layer-content select {
-        background-color: var(--jhs-input-bg);
-        color: var(--jhs-text);
-        border: 1px solid var(--jhs-border);
-    }
+    /* 控件状态由 ui-primitives 统一负责，避免主题选择器覆盖 hover/focus。 */
     .jhs-ui ::placeholder,
     .jhs-dialog .layui-layer-content ::placeholder {
         color: var(--jhs-placeholder);
@@ -242,9 +267,11 @@ export function buildThemeCss() {
     .jhs-ui button:disabled,
     .jhs-ui input:disabled,
     .jhs-ui select:disabled,
+    .jhs-ui textarea:disabled,
     .jhs-dialog .layui-layer-content button:disabled,
     .jhs-dialog .layui-layer-content input:disabled,
-    .jhs-dialog .layui-layer-content select:disabled {
+    .jhs-dialog .layui-layer-content select:disabled,
+    .jhs-dialog .layui-layer-content textarea:disabled {
         background-color: var(--jhs-disabled-bg);
         color: var(--jhs-disabled-text);
         border-color: var(--jhs-border);
@@ -257,45 +284,35 @@ export function buildThemeCss() {
         font-family: var(--jhs-font);
     }
 
-    /* 焦点环 */
+    :where(.jhs-ui, .jhs-dialog, .jhs-btn, .jhs-field, .jhs-switch, .mini-switch, .jhs-icon-btn, .card-btn) { color-scheme:var(--jhs-color-scheme); }
     :where(.jhs-ui) :focus-visible,
-    :where(.jhs-dialog .layui-layer-content) :focus-visible,
-    :where(.tabulator) :focus-visible {
-        outline: 2px solid var(--jhs-accent);
-        outline-offset: 2px;
+    :where(.jhs-btn, .jhs-icon-btn, .card-btn, .jhs-link):focus-visible {
+        outline:2px solid var(--jhs-focus);
+        outline-offset:2px;
     }
 
-    /* 滚动条 (JHS 表面) */
-    .jhs-scrollbar::-webkit-scrollbar,
-    .content-panel::-webkit-scrollbar,
-    .tabulator-tableholder::-webkit-scrollbar,
-    .has-navbar-fixed-top::-webkit-scrollbar,
-    .jhs-dialog .layui-layer-content::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
+    :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar) { scrollbar-width:thin; scrollbar-color:var(--jhs-border-strong) var(--jhs-surface); }
+    @supports not (scrollbar-color: auto) {
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar)::-webkit-scrollbar { width:10px; height:10px; }
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar)::-webkit-scrollbar-track { background:var(--jhs-surface); }
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar)::-webkit-scrollbar-thumb { background:var(--jhs-border-strong); border:2px solid var(--jhs-surface); border-radius:var(--jhs-radius-pill); }
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar)::-webkit-scrollbar-thumb:hover { background:var(--jhs-text-faint); }
     }
-    .jhs-scrollbar::-webkit-scrollbar-track,
-    .content-panel::-webkit-scrollbar-track,
-    .tabulator-tableholder::-webkit-scrollbar-track,
-    .has-navbar-fixed-top::-webkit-scrollbar-track,
-    .jhs-dialog .layui-layer-content::-webkit-scrollbar-track {
-        background: var(--jhs-surface-2);
-        border-radius: 10px;
+    :is(.jhs-owned-popover,.jhs-fab-menu,.simple-setting__scroll) { overscroll-behavior:contain; }
+    .jhs-dialog :is(.layui-layer-content,.jhs-history-layout,.jhs-record-list,#actress-card-container,#new-video-list-container,.content-panel,.jhs-stats,.jhs-resource-form,.jhs-scroll-frame,.tabulator-tableholder,.jhs-code-viewer) { overscroll-behavior:contain; }
+    @media (pointer:coarse), (forced-colors:active) {
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar) { scrollbar-width:auto; }
     }
-    .jhs-scrollbar::-webkit-scrollbar-thumb,
-    .content-panel::-webkit-scrollbar-thumb,
-    .tabulator-tableholder::-webkit-scrollbar-thumb,
-    .has-navbar-fixed-top::-webkit-scrollbar-thumb,
-    .jhs-dialog .layui-layer-content::-webkit-scrollbar-thumb {
-        background: var(--jhs-border-strong);
-        border-radius: 10px;
+    @media (pointer:coarse) {
+        @supports not (scrollbar-color: auto) {
+            :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar)::-webkit-scrollbar { width:auto; height:auto; }
+        }
     }
-    .jhs-scrollbar::-webkit-scrollbar-thumb:hover,
-    .content-panel::-webkit-scrollbar-thumb:hover,
-    .tabulator-tableholder::-webkit-scrollbar-thumb:hover,
-    .has-navbar-fixed-top::-webkit-scrollbar-thumb:hover,
-    .jhs-dialog .layui-layer-content::-webkit-scrollbar-thumb:hover {
-        background: var(--jhs-text-faint);
+    @media (forced-colors:active) {
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar) { scrollbar-color:auto; }
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar)::-webkit-scrollbar { width:auto; height:auto; }
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar)::-webkit-scrollbar-thumb { background:CanvasText; border-color:Canvas; }
+        :is(.jhs-ui, .jhs-ui *, .jhs-scrollbar)::-webkit-scrollbar-track { background:Canvas; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -325,14 +342,14 @@ export function buildThemeCss() {
         border: 1px solid var(--jhs-border);
         color: var(--jhs-text);
     }
-    :root[data-jhs-theme="dark"] .jhs-dialog .layui-layer-btn .jhs-dialog .layui-layer-btn0 {
+    :root[data-jhs-theme="dark"] .jhs-dialog .layui-layer-btn .layui-layer-btn0 {
         background-color: var(--jhs-accent);
         border-color: transparent;
         color: var(--jhs-accent-text-on);
     }
     .jhs-dialog .layui-layer-setwin .layui-layer-close {
-        width: 36px!important;
-        height: 36px!important;
+        width: var(--jhs-touch-target)!important;
+        height: var(--jhs-touch-target)!important;
         background: none!important;
         color: var(--jhs-text-muted)!important;
         font-size: 0!important;
@@ -342,9 +359,9 @@ export function buildThemeCss() {
     .jhs-dialog .layui-layer-setwin .layui-layer-close::after {
         content: "";
         position: absolute;
-        top: 17px;
-        left: 9px;
-        width: 18px;
+        top: calc(var(--jhs-touch-target) / 2 - 1px);
+        left: calc((var(--jhs-touch-target) - var(--jhs-icon-md)) / 2);
+        width: var(--jhs-icon-md);
         height: 2px;
         border-radius: 1px;
         background: currentColor;
@@ -353,16 +370,6 @@ export function buildThemeCss() {
     .jhs-dialog .layui-layer-setwin .layui-layer-close::after { transform: rotate(-45deg); }
     .jhs-dialog .layui-layer-setwin .layui-layer-close:hover,
     .jhs-dialog .layui-layer-setwin .layui-layer-close:focus-visible { color: var(--jhs-text)!important; }
-    :root[data-jhs-theme="dark"] .layui-input,
-    :root[data-jhs-theme="dark"] .jhs-dialog .layui-layer-content input[type="text"],
-    :root[data-jhs-theme="dark"] .jhs-dialog .layui-layer-content input[type="number"],
-    :root[data-jhs-theme="dark"] .jhs-dialog .layui-layer-content textarea,
-    :root[data-jhs-theme="dark"] .jhs-dialog .layui-layer-content select {
-        background-color: var(--jhs-input-bg);
-        color: var(--jhs-text);
-        border: 1px solid var(--jhs-border);
-    }
-
     /* 暗色下覆盖 Tabulator 表格 chrome (semanticui 主题为亮色) */
     :root[data-jhs-theme="dark"] .tabulator {
         background-color: var(--jhs-surface);
@@ -397,15 +404,11 @@ export function buildThemeCss() {
         border-top: 1px solid var(--jhs-border);
     }
     :root[data-jhs-theme="dark"] .tabulator .tabulator-responsive-collapse {
-        background-color: var(--jhs-surface-2);
+        background-color: var(--jhs-surface);
         color: var(--jhs-text);
         border-top: 1px solid var(--jhs-border);
     }
 
-    /* 暗色下图标翻转为单色, 避免深色 path 在暗表面上不可见 */
-    :root[data-jhs-theme="dark"] .jhs-icon path {
-        fill: var(--jhs-icon-color);
-    }
 </style>\n`;
 }
 

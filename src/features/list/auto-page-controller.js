@@ -5,7 +5,7 @@ import { readListItem } from "../../core/list-item-reader.js";
 import { requestHostPage } from "../../core/host-page-request.js";
 
 export const AUTO_PAGE_STYLES = `
-    .jhs-scroll { text-align:center; padding-top:20px; font-size:14px; }
+    .jhs-scroll { text-align:center; padding-top:var(--jhs-space-5); font-size:var(--jhs-font-size-md); }
     .jhs-scroll.waterfall-loading { color:var(--jhs-text); }
     .jhs-scroll.waterfall-error { color:var(--jhs-status-filter); cursor:pointer; }
     .jhs-scroll.waterfall-stopped { color:var(--jhs-status-filter); }
@@ -30,7 +30,8 @@ export class AutoPageController {
         this.logger = options.logger ?? /** @type {any} */ (globalThis).clog ?? console;
         this.preloadDistance = 500;
         this.currentPage = this.getInitialPageNumber();
-        /** @type {Array<{page: number, top: number, url: string}>} */ this.pageItems = [];
+        this.loadedPage = this.currentPage;
+        /** @type {Array<{page: number, top: number, url: string, items: Element[]}>} */ this.pageItems = [];
         /** @type {boolean} */ this.started = false;
         /** @type {import("../../core/lifecycle-scope.js").LifecycleScope | null} */ this.liveScope = null;
         /** @type {number} */ this.generation = 0;
@@ -77,12 +78,13 @@ export class AutoPageController {
 
     start() {
         if (this.disposed || this.scope.disposed) return Promise.resolve(false);
-        if (this.started) return this.waterfallPromise || (this.waterfallPromise = this.waterfall().finally(() => { this.waterfallPromise = null; }));
+        if (this.started) return this.waterfallPromise || Promise.resolve(true);
         this.started = true;
         this.liveScope?.dispose();
         this.liveScope = new LifecycleScope("autopage:live");
         this.generation++;
-        this.waterfallPromise = this.waterfall().finally(() => { this.waterfallPromise = null; });
+        const pending = this.waterfall().finally(() => { if (this.waterfallPromise === pending) this.waterfallPromise = null; });
+        this.waterfallPromise = pending;
         return this.waterfallPromise;
     }
 
@@ -92,14 +94,10 @@ export class AutoPageController {
         this.generation++;
         this.liveScope?.dispose();
         this.liveScope = null;
-        this.nextUrl = null;
-        this.hasMore = false;
         this.isLoading = false;
         this.pausedFilter = null;
         this.loader?.remove();
         this.loader = undefined;
-        this.container = undefined;
-        this.pageItems = [];
     }
 
     dispose() {
@@ -110,6 +108,10 @@ export class AutoPageController {
         this.unsubscribeItems?.();
         this.unsubscribeItems = null;
         this.stop();
+        this.container = undefined;
+        this.pageItems = [];
+        this.nextUrl = null;
+        this.hasMore = false;
     }
 
     getInitialPageNumber() {
@@ -123,32 +125,36 @@ export class AutoPageController {
     getSelector() { return this.hostAdapter.getListSelectors(); }
 
     async waterfall() {
-        if (!this.started || !this.liveScope || await this.shouldDisablePaging()) return;
-        if (!this.started || !this.liveScope || this.liveScope.disposed) return;
         const scope = this.liveScope;
+        const generation = this.generation;
+        if (!scope || !this.isCurrent(generation, scope) || await this.shouldDisablePaging()) return;
+        if (!this.isCurrent(generation, scope)) return;
         const selectors = this.getSelector();
         const container = /** @type {HTMLElement | null} */ (this.document.querySelector(selectors.boxSelector));
         if (!container || !container.parentNode) return this.log("error", "没有找到容器节点,停止瀑布流!");
+        if (this.container !== container || !this.pageItems.length) {
+            this.currentPage = this.getInitialPageNumber();
+            this.loadedPage = this.currentPage;
+            this.pageItems = [{ page: this.currentPage, top: 0, url: this.window.location.href, items: [...container.querySelectorAll(selectors.requestDomItemSelector)] }];
+            const next = /** @type {HTMLAnchorElement | null} */ (this.document.querySelector(selectors.nextPageSelector));
+            this.nextUrl = next?.href ?? null;
+            this.hasMore = Boolean(this.nextUrl);
+        }
         this.container = container;
         const loader = this.document.createElement("div");
         this.loader = loader;
         loader.className = "jhs-scroll";
         container.parentNode.insertBefore(loader, container.nextSibling);
-        this.pageItems.push({ page: this.currentPage, top: 0, url: this.window.location.href });
         loader.addEventListener("click", (/** @type {MouseEvent} */ event) => this.handleLoaderClick(event));
         let scheduled = false;
         scope.listen(this.window, "scroll", () => {
             if (scheduled) return;
             scheduled = true;
             this.window.requestAnimationFrame?.(() => {
-                this.checkLoad();
-                this.checkScrollPosition();
+                if (this.isCurrent(generation, scope)) { this.checkLoad(); this.checkScrollPosition(); }
                 scheduled = false;
-            }) ?? setTimeout(() => { this.checkLoad(); this.checkScrollPosition(); scheduled = false; }, 0);
+            }) ?? setTimeout(() => { if (this.isCurrent(generation, scope)) { this.checkLoad(); this.checkScrollPosition(); } scheduled = false; }, 0);
         });
-        const next = /** @type {HTMLAnchorElement | null} */ (this.document.querySelector(selectors.nextPageSelector));
-        this.nextUrl = next?.href ?? null;
-        this.hasMore = Boolean(this.nextUrl);
         this.onVisibilityChanged(this.list?.getVisibilitySnapshot?.() ?? this.visibilitySnapshot);
         scope.ownTimeout(setTimeout(() => this.checkLoad(), 1000));
         if (!this.hasMore) this.setState("waterfall-no-more", "已经到底了");
@@ -204,7 +210,7 @@ export class AutoPageController {
             return this.setState("waterfall-error", "列表功能已禁用，无法继续翻页");
         }
         this.isLoading = true;
-        this.setState("waterfall-loading", "加载中...");
+        this.setState("waterfall-loading", "加载中…");
         const selectors = this.getSelector();
         const generation = this.generation;
         const scope = this.liveScope;
@@ -225,17 +231,20 @@ export class AutoPageController {
             if (!this.isCurrent(generation, scope)) return;
             const container = this.container;
             if (!container) return;
-            const pageUrl = this.nextUrl;
-            this.pageItems.push({ page: this.currentPage + 1, top: container.scrollHeight, url: pageUrl });
+            const pageUrl = new URL(this.nextUrl, this.window.location.href).href;
+            const pageTop = container.getBoundingClientRect().top + this.window.scrollY + container.scrollHeight;
             this.list.replaceCoverImages?.(page.find(selectors.coverImgSelector).toArray());
             this.ui.jquery(container).append(cards);
+            this.loadedPage++;
+            this.pageItems.push({ page: this.loadedPage, top: pageTop, url: pageUrl, items: cards.toArray() });
             this.nextUrl = page.find(selectors.nextPageSelector).first().attr("href") ?? null;
             this.hasMore = Boolean(this.nextUrl);
             this.ui.jquery(".pagination").replaceWith(page.find(".pagination"));
             this.setState("waterfall-loading", "");
             if (!this.hasMore) this.setState("waterfall-no-more", "已经到底了");
         } catch (error) {
-            this.started && this.loader && this.setState("waterfall-error", "加载失败，点击重试");
+            if (!this.isCurrent(generation, scope)) return;
+            this.setState("waterfall-error", "加载失败，点击重试");
             this.log("error", "加载失败:", error);
         } finally {
             if (generation === this.generation) {
@@ -285,6 +294,11 @@ export class AutoPageController {
         const scrollY = this.window.scrollY;
         for (let index = this.pageItems.length - 1; index >= 0; index--) {
             const page = this.pageItems[index];
+            if (index > 0) {
+                const visibleItem = page.items.find(item => item.isConnected && item.getClientRects().length > 0);
+                if (!visibleItem) continue;
+                page.top = visibleItem.getBoundingClientRect().top + scrollY;
+            }
             if (scrollY >= page.top) {
                 if (this.currentPage !== page.page) {
                     this.currentPage = page.page;

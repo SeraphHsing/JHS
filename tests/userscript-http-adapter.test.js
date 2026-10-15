@@ -2,6 +2,79 @@ import { describe, expect, it, vi } from "vitest";
 import { UserscriptHttpAdapter } from "../src/platform/userscript/userscript-http-adapter.js";
 
 describe("UserscriptHttpAdapter", () => {
+    it.each([{}, { redirect: "manual" }, { anonymous: true }, { fetch: true }])("times out a silent GM request independently of native callbacks (%j)", async requestOptions => {
+        vi.useFakeTimers();
+        try {
+            let callbacks;
+            const abort = vi.fn(() => callbacks.onabort());
+            const request = vi.fn(options => { callbacks = options; return { abort }; });
+            const pending = new UserscriptHttpAdapter(request).request({ url: "https://example.test/file", timeout: 10_000, requestOptions });
+            const rejected = expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
+            await vi.advanceTimersByTimeAsync(9_999);
+            expect(abort).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1);
+            await rejected;
+            expect(abort).toHaveBeenCalledOnce();
+            callbacks.onload({ status: 200, responseText: "late", finalUrl: callbacks.url });
+            callbacks.onerror(new Error("late"));
+            callbacks.ontimeout();
+            expect(abort).toHaveBeenCalledOnce();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally { vi.useRealTimers(); }
+    });
+
+    it("cleans up its timer after success just before the deadline", async () => {
+        vi.useFakeTimers();
+        try {
+            const abort = vi.fn();
+            const request = options => { setTimeout(() => options.onload({ status: 200, responseText: "ok" }), 9_999); return { abort }; };
+            const pending = new UserscriptHttpAdapter(request).request({ url: "https://example.test/file", timeout: 10_000 });
+            await vi.advanceTimersByTimeAsync(9_999);
+            await expect(pending).resolves.toMatchObject({ data: "ok" });
+            await vi.advanceTimersByTimeAsync(1);
+            expect(abort).not.toHaveBeenCalled();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally { vi.useRealTimers(); }
+    });
+
+    it.each(["success", "error", "throw", "abort"])("cleans timer and signal listener after synchronous %s", async outcome => {
+        vi.useFakeTimers();
+        try {
+            const controller = new AbortController(), remove = vi.spyOn(controller.signal, "removeEventListener"), abort = vi.fn();
+            const request = options => {
+                if (outcome === "success") options.onload({ status: 200, responseText: "ok" });
+                if (outcome === "error") options.onerror(new Error("failed"));
+                if (outcome === "throw") throw new Error("failed");
+                if (outcome === "abort") controller.abort();
+                return { abort };
+            };
+            const pending = new UserscriptHttpAdapter(request).request({ url: "https://example.test/file", timeout: 10_000, signal: controller.signal });
+            if (outcome === "success") await expect(pending).resolves.toMatchObject({ data: "ok" });
+            else await expect(pending).rejects.toMatchObject({ code: outcome === "abort" ? "ABORTED" : "NETWORK_ERROR" });
+            expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+            expect(vi.getTimerCount()).toBe(0);
+            expect(abort).toHaveBeenCalledTimes(outcome === "abort" ? 1 : 0);
+        } finally { vi.useRealTimers(); }
+    });
+
+    it("does not start a GM request for an already cancelled signal", async () => {
+        const controller = new AbortController(), request = vi.fn();
+        controller.abort();
+        await expect(new UserscriptHttpAdapter(request).request({ url: "https://example.test/file", signal: controller.signal, timeout: 10_000 })).rejects.toMatchObject({ code: "ABORTED" });
+        expect(request).not.toHaveBeenCalled();
+    });
+
+    it("cancels a running GM request once and ignores its late callbacks", async () => {
+        const controller = new AbortController();
+        let callbacks;
+        const abort = vi.fn(() => callbacks.onabort());
+        const pending = new UserscriptHttpAdapter(options => { callbacks = options; return { abort }; }).request({ url: "https://example.test/file", signal: controller.signal, timeout: 10_000 });
+        controller.abort();
+        await expect(pending).rejects.toMatchObject({ code: "ABORTED" });
+        callbacks.onload({ status: 200, responseText: "late" });
+        expect(abort).toHaveBeenCalledOnce();
+    });
+
     it("passes declared userscript request options without allowing core fields to be overridden", async () => {
         const request = vi.fn(options => {
             options.onload({ status: 200, responseText: "ok", finalUrl: options.url });

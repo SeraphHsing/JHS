@@ -13,12 +13,12 @@ export async function applyImageMode(imageLayout = null, enableVerticalModel) {
         let e = "100% 50% !important";
         window.location.pathname === "/tags/fc2" && new URLSearchParams(window.location.search).get("jhs_source") === "123av" && (e = "50% 50% !important");
         const t = `
-                .cover {
+                :is([data-jhs-primary-list], [data-jhs-native-recommendations]) .cover {
                     aspect-ratio: 3 / 4.26;
                     overflow: hidden !important;
                 }
 
-                .cover img {
+                :is([data-jhs-primary-list], [data-jhs-native-recommendations]) .cover img {
                     width: 100%;
                     height: 100%;
                     object-fit: cover !important;
@@ -34,11 +34,11 @@ export async function applyImageMode(imageLayout = null, enableVerticalModel) {
         $("<style>").attr("id", "verticalImgStyle").text(t).appendTo("head");
     } else {
         const e = `
-                .cover {
+                :is([data-jhs-primary-list], [data-jhs-native-recommendations]) .cover {
                     min-height:auto !important;
                     padding-top: 67% !important;
                 }
-                .cover img {
+                :is([data-jhs-primary-list], [data-jhs-native-recommendations]) .cover img {
                     object-fit: contain !important;
                     object-position: 50% 50% !important
                 }
@@ -74,7 +74,15 @@ export async function applyLayoutFromSettings(snapshot = {}, options = {}) {
     }
     if (hostAdapter) {
         const listRoot = hostAdapter.locateListRoot?.();
-        if (listRoot) listRoot.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+        if (listRoot) {
+            listRoot.setAttribute("data-jhs-primary-list", "true");
+            listRoot.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+        }
+        const detailRoot = hostAdapter.locateDetailRoot?.();
+        detailRoot?.style.setProperty("--jhs-recommendation-columns", String(mobile ? 2 : columns));
+        for (const boundary of hostAdapter.getDetailRecommendationBoundaries?.() ?? []) {
+            boundary.root.style.setProperty("--jhs-recommendation-columns", String(mobile ? 2 : columns));
+        }
         const layoutContainer = hostAdapter.getListLayoutContainer?.();
         if (layoutContainer) layoutContainer.style.minWidth = `${width}%`;
     }

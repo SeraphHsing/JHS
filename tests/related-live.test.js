@@ -18,11 +18,14 @@ it("owned related panels dispose requests and subscriptions independently", asyn
         const b=await owner.show(jquery("#b"),"B",{ownCleanup:fn=>cleanups.push(fn)});
         a.find("button").trigger("click");
         expect(requests).toHaveLength(2);
+        expect(a.attr("aria-busy")).toBe("true"); expect(b.attr("aria-busy")).toBe("true");
         cleanups[0]();a.remove();
+        expect(a.attr("aria-busy")).toBe("false");
         expect(requests[0].scope.disposed).toBe(true);
         expect(requests[1].scope.disposed).toBe(false);
         requests[0].resolve([{id:"stale",name:"stale"}]);requests[1].resolve([]);
-        await vi.waitFor(()=>expect(b.text()).toContain("无清单"));
+        await vi.waitFor(()=>expect(b.text()).toContain("暂无清单"));
+        expect(b.attr("aria-busy")).toBe("false");
         cleanups[1]();
         expect(remove).toHaveBeenCalledTimes(2);
         expect(parent.cleanups.size).toBe(0);

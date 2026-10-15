@@ -4,7 +4,7 @@ import { _ } from "../../core/constants.js";
 import { calcMagnetScore, getMagnetQualitySignals } from "../../core/magnet-quality.js";
 
 export const DETAIL_MAGNET_FILTER_STYLES = `
-    .jhs-magnet-score{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:1px 6px;border-radius:10px;font-size:11px;font-weight:600;vertical-align:middle;cursor:help}
+    .jhs-magnet-score{display:inline-flex;align-items:center;gap:var(--jhs-space-1);margin-left:var(--jhs-space-2);padding:var(--jhs-space-half) var(--jhs-space-2);border-radius:var(--jhs-radius-pill);font-size:var(--jhs-font-size-xs);font-weight:var(--jhs-font-weight-semibold);vertical-align:middle;cursor:help}
     .jhs-magnet-filter-hidden{display:none!important}
 `;
 

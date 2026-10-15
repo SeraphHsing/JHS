@@ -18,14 +18,19 @@ function stateButtonEntries() {
     return /** @type {any} */ (Object.entries(DETAIL_STATE_BUTTONS));
 }
 
+/** Escape confirmation labels without depending on an ambient page document. @param {string} value */
+function escapeConfirmationLabel(value) {
+    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
 /** 统一详情页四状态按钮、确认、持久化和精确关闭行为。 */
 export class DetailStateController {
-    /** @param {import("./state-service.js").StateService} stateService @param {{readState?: (carNum: string) => Promise<any>, confirm?: (event: MouseEvent | null, message: string, accept: () => any) => any, closePage?: (options: any) => Promise<any>, reportError?: (message: string) => any, logError?: (...args: any[]) => any, jquery?: (value: any) => any}} [ui] */
+    /** @param {import("./state-service.js").StateService} stateService @param {{readState?: (carNum: string) => Promise<any>, confirm?: (event: MouseEvent | null, message: string, accept: () => any, options?: {confirmText?: string, cancelText?: string}) => any, closePage?: (options: any) => Promise<any>, reportError?: (message: string) => any, logError?: (...args: any[]) => any, jquery?: (value: any) => any}} [ui] */
     constructor(stateService, ui = {}) {
         this.stateService = stateService;
         this.ui = {
             readState: ui.readState ?? ((carNum) => storageManager.getCar(carNum)),
-            confirm: ui.confirm ?? ((event, message, accept) => utils.q(event, message, accept)),
+            confirm: ui.confirm ?? ((event, message, accept, options) => utils.q(event, message, accept, undefined, options)),
             closePage: ui.closePage ?? ((options) => utils.closePage(options)),
             reportError: ui.reportError ?? ((message) => show.error(message)),
             logError: ui.logError ?? ((...args) => clog.error(...args)),
@@ -49,7 +54,7 @@ export class DetailStateController {
     async requestToggle(config, flag, event = null) {
         if (!config.carNum) return void this.ui.reportError("番号不可用，无法更新状态");
         const current = await this.ui.readState(config.carNum), flags = normalizeStateFlags(current?.stateFlags);
-        if ("blocked" === flag && !flags.blocked) return void this.ui.confirm(event, `是否屏蔽${config.carNum}?`, (() => this.toggle(config, flag, event)));
+        if ("blocked" === flag && !flags.blocked) return void this.ui.confirm(event, `屏蔽「${escapeConfirmationLabel(config.carNum)}」？`, (() => this.toggle(config, flag, event)), { confirmText: "屏蔽" });
         return this.toggle(config, flag, event);
     }
     /** @param {DetailStateConfig} config @param {DetailStateFlag} flag @param {MouseEvent | null} [event] */
@@ -63,7 +68,7 @@ export class DetailStateController {
             const record = "function" == typeof config.getRecord ? await config.getRecord() : config.getRecord || { carNum: config.carNum };
             await this.stateService.toggle(config.carNum, flag, { type: config.activityType, record }), await this.render(config), await this.ui.closePage({ layerIndex: config.layerIndex, root: config.closeRoot || config.root });
         } catch (error) {
-            this.ui.logError("详情状态更新失败", error), this.ui.reportError("操作失败");
+            this.ui.logError("详情状态更新失败", error), this.ui.reportError("状态更新失败，请重试");
         } finally {
             button[0]?.isConnected && button.prop("disabled", !1).removeAttr("aria-busy");
         }

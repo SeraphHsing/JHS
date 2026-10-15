@@ -23,6 +23,7 @@ for (const [label, url] of [
   ["JavBus", "https://www.javbus.com/ABC-123"]
 ]) {
   test(`${label} fixture startup remains within the reviewed median`, async ({ browser, context }, testInfo) => {
+    test.setTimeout(30_000 + SAMPLE_COUNT * 2_000);
     test.skip(testInfo.project.name !== "desktop-wide", "one deterministic desktop project owns startup timing");
     const cold = process.env.JHS_STARTUP_MODE !== "warm";
     if (!cold) await fulfillHostFixtures(context);

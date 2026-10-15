@@ -21,7 +21,7 @@ describe("preview master + DMM sub switch policy", () => {
         expect(canUseDmmPreview({ enablePreviewVideo: "yes", enableLoadPreviewVideo: "no" })).toBe(false);
         expect(canUseDmmPreview({ enablePreviewVideo: "no", enableLoadPreviewVideo: "yes" })).toBe(false);
         expect(canUseDmmPreview({ enablePreviewVideo: "yes", enableLoadPreviewVideo: "yes" })).toBe(true);
-        expect(canUseCardPreview({ enablePreviewVideo: "yes", enableLoadPreviewVideo: "no" })).toBe(false);
+        expect(canUseCardPreview({ enablePreviewVideo: "yes", enableLoadPreviewVideo: "no" })).toBe(true);
         expect(canUseCardPreview({ enablePreviewVideo: "yes", enableLoadPreviewVideo: "yes" })).toBe(true);
     });
 
@@ -36,7 +36,7 @@ describe("preview master + DMM sub switch policy", () => {
         const movie = { preview: vi.fn(async () => ({ sources: { mhb_w: "https://example.test/a.mp4" }, matchType: "single", pageUrl: "https://example.test" })) };
         const storage = { getLocal: vi.fn(() => null), setLocal: vi.fn() };
         vi.stubGlobal("clog", { debug: vi.fn(), warn: vi.fn(), error: vi.fn() });
-        vi.stubGlobal("$", vi.fn(() => ({ attr: vi.fn().mockReturnThis(), css: vi.fn().mockReturnThis(), append: vi.fn().mockReturnThis() })));
+        vi.stubGlobal("$", vi.fn(() => ({ attr: vi.fn().mockReturnThis(), removeClass: vi.fn().mockReturnThis(), addClass: vi.fn().mockReturnThis(), append: vi.fn().mockReturnThis() })));
         const result = await fetchDmmPreviewIfEnabled("ABC-123", storage, movie, { id: "scope" }, { enableLoadPreviewVideo: "yes" });
         expect(movie.preview).toHaveBeenCalledOnce();
         expect(result.sources).toEqual({ mhb_w: "https://example.test/a.mp4" });

@@ -5,6 +5,7 @@ import vm from "node:vm";
 import jqueryFactory from "jquery";
 import { JSDOM } from "jsdom";
 import { describe, expect, it, vi } from "vitest";
+import { getIcon } from "../src/core/icons.js";
 
 const repoRoot = join(import.meta.dirname, "..");
 
@@ -22,7 +23,7 @@ function loadListObserver() {
         }
     }
     const context = vm.createContext({
-        console, window: dom.window, document: dom.window.document, Node: dom.window.Node, MutationObserver: dom.window.MutationObserver,
+        console, getIcon, window: dom.window, document: dom.window.document, Node: dom.window.Node, MutationObserver: dom.window.MutationObserver,
         IntersectionObserver: undefined, localStorage: dom.window.localStorage, URLSearchParams, fetch, $, BasePlugin,
         r: true, l: false, c: false, _: "yes", C: "no", B: "actor", u: "屏蔽", b: "收藏", y: "下载", k: "观看",
         storageManager, utils: {}, clog: { error: vi.fn(), warn: vi.fn(), log: vi.fn(), debug: vi.fn() }, show: { error: vi.fn() },
@@ -51,7 +52,10 @@ function initializeAccessibilityDom(html) {
     const dom = new JSDOM(html), source = readTestFile(join(repoRoot, "src/core/ui-primitives.js"), "utf8"), start = source.indexOf("function initializeUiAccessibility"), end = source.indexOf("class JhsSelect", start), context = vm.createContext({
         document: dom.window.document, Node: dom.window.Node, MutationObserver: dom.window.MutationObserver, queueMicrotask
     });
-    context.lifecycleScope = { observe(target, callback, options) { const observer = new dom.window.MutationObserver(callback); return observer.observe(target, options), observer; } };
+    context.lifecycleScope = {
+        observe(target, callback, options) { const observer = new dom.window.MutationObserver(callback); return observer.observe(target, options), observer; },
+        listen(target, type, handler, options) { target.addEventListener(type, handler, options); return () => target.removeEventListener(type, handler, options); }
+    };
     vm.runInContext(`${source.slice(start, end)};initializeUiAccessibility(lifecycleScope);`, context);
     return dom;
 }

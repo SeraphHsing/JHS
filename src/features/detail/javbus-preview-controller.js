@@ -4,12 +4,13 @@ import { L } from "../../core/constants.js";
 import { LifecycleScope } from "../../core/lifecycle-scope.js";
 import { safePlay } from "../../core/feature-helpers.js";
 import { Z, canUseDmmPreview, fetchDmmPreviewIfEnabled, isPreviewEnabled } from "../../services/preview-service.js";
+import { getIcon } from "../../core/icons.js";
 
 export const JAVBUS_PREVIEW_STYLES = `
-    .bus-preview-modal { position:fixed; inset:0; z-index:var(--jhs-z-modal); display:flex; align-items:center; justify-content:center; visibility:hidden; opacity:0; background:rgba(0,0,0,.95); transition:opacity var(--jhs-motion-base) var(--jhs-ease); }
+    .bus-preview-modal { position:fixed; inset:0; z-index:var(--jhs-z-modal); display:flex; align-items:center; justify-content:center; visibility:hidden; opacity:0; background:var(--jhs-overlay); transition:opacity var(--jhs-motion-base) var(--jhs-ease); }
     .bus-preview-modal.is-open { visibility:visible; opacity:1; }
     .bus-preview-modal-content { position:relative; display:flex; max-width:95%; max-height:95%; flex-direction:column; align-items:center; gap:var(--jhs-space-3); }
-    .video-player-wrapper { position:relative; width:80vw; max-width:100%; max-height:85vh; aspect-ratio:16/9; background:#000; }
+    .video-player-wrapper { position:relative; width:80vw; max-width:100%; max-height:85vh; aspect-ratio:16/9; background:var(--jhs-media-bg); }
     .video-player-wrapper #preview-video { position:absolute; inset:0; }
 `;
 
@@ -29,6 +30,7 @@ export class JavBusPreviewController {
         this.diagnostics = options.diagnostics;
         this.scope = options.scope;
         this.started = false;
+        this.previewIntentConsumed = false;
         this.mounted = false;
         this.busy = false;
         this.generation = 0;
@@ -99,18 +101,18 @@ export class JavBusPreviewController {
         this.mounted = true;
         this.initModal();
         const gallery = $(galleryElement), imageSource = gallery.find(".sample-box .photo-frame img").first().attr("src");
-        const button = $('<button type="button" class="jhs-btn preview-video-container sample-box jhs-layout-3b6a3a65"><div class="photo-frame jhs-layout-87db2275"><img class="video-cover" alt=""><span class="play-icon jhs-play-overlay" aria-hidden="true">▶</span></div></button>');
+        const button = $(`<button type="button" class="jhs-btn preview-video-container sample-box jhs-layout-3b6a3a65"><div class="photo-frame jhs-layout-87db2275"><img class="video-cover" alt=""><span class="play-icon jhs-play-overlay" aria-hidden="true">${getIcon("play")}</span></div></button>`);
         if (imageSource) button.find("img.video-cover").attr("src", imageSource);
         button.on("click.jhsBusPreview", async (/** @type {MouseEvent} */ event) => {
             event.preventDefault();
             event.stopPropagation();
-            if (this.busy) return this.ui.notifications?.info?.("正在加载中, 勿重复点击");
+            if (this.busy) return this.ui.notifications?.info?.("正在加载，请稍候");
             this.busy = true;
             try { await this.handleVideo(); }
             finally { this.busy = false; }
         });
         gallery.prepend(button);
-        if (this.window.location.href.includes("autoPlay=1")) button.trigger("click");
+        if (!this.previewIntentConsumed && this.window.location.href.includes("autoPlay=1")) { this.previewIntentConsumed = true; button[0].scrollIntoView?.({block:"center"}); button.trigger("focus").trigger("click"); }
     }
 
     async handleVideo() {
@@ -131,16 +133,16 @@ export class JavBusPreviewController {
             const { sources, error } = await fetchDmmPreviewIfEnabled(carNum, this.storage, this.movie, requestScope, this.settings.snapshot());
             if (generation !== this.generation || this.scope.disposed || !isPreviewEnabled(this.settings.snapshot())) return;
             if (!sources || !Object.keys(sources).length) {
-                this.ui.notifications?.error?.(error?.code === "REGION_BLOCKED" ? error.message : "未找到可用的视频源。");
+                this.ui.notifications?.error?.(error?.code === "REGION_BLOCKED" ? "视频访问受限" : "未找到可用视频");
                 return;
             }
             await this.createVideoPlayerAndControls(sources, content);
             video = this.document.querySelector("#preview-video");
-            if (video?.tagName !== "VIDEO") return this.ui.notifications?.error?.("视频播放器创建失败。");
+            if (video?.tagName !== "VIDEO") return this.ui.notifications?.error?.("视频播放器创建失败");
             modal.addClass("is-open");
             await safePlay(/** @type {HTMLVideoElement} */ (video), {
                 context: "JavBus 预览视频", notify: true,
-                message: error?.code === "REGION_BLOCKED" ? error.message : "当前视频源无法播放",
+                message: error?.code === "REGION_BLOCKED" ? "视频访问受限" : "当前视频源无法播放",
             });
         } finally {
             if (this.requestScope === requestScope) this.requestScope = null;

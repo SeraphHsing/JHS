@@ -8,14 +8,23 @@
  * write through the same SettingsService key. Feature toggles are "live":
  * changes apply immediately through the feature owner's mount/unmount/reconfigure.
  */
+import { PRODUCT_NAMES } from "../core/product-names.js";
 import { parseBooleanSetting } from "../core/feature-helpers.js";
 
 /** @param {import("./settings-registry.js").SettingsRegistry} registry */
 export function registerDefaultSettings(registry) {
     const boolean = { type: "boolean", effect: "live" };
     const yes = "yes", no = "no";
+    /** @type {Record<string, string>} */
+    const sections = {
+        enableVerticalModel: "appearance", hoverBigImg: "appearance",
+        enableScreenSvg: "media", enableLoadScreenShot: "media", enablePreviewVideo: "media", enableLoadPreviewVideo: "media",
+        enableVideoSvg: "card-buttons", enableHandleSvg: "card-buttons", enableSiteSvg: "card-buttons", enableCopySvg: "card-buttons",
+        autoPage: "list", translateTitle: "list", enableLoadReview: "detail", enableLoadActressInfo: "detail",
+        enableLoadOtherSite: "resources", enableMagnetsFilter: "filter",
+    };
     /** @param {string} key @param {string} owner @param {string} label @param {Record<string, any>} [extra] */
-    const toggle = (key, owner, label, extra = {}) => registry.register({ key, owner, label, ...boolean, defaultValue: extra.defaultValue ?? yes, ...extra });
+    const toggle = (key, owner, label, extra = {}) => registry.register({ key, owner, label, section: sections[key], ...boolean, defaultValue: extra.defaultValue ?? yes, ...extra });
     /** @param {unknown} value @param {number} fallback @param {number} min @param {number} max */
     const normalizeInteger = (value, fallback, min, max) => {
         const parsed = Number(value);
@@ -25,80 +34,80 @@ export function registerDefaultSettings(registry) {
 
     // ---- Screenshot（列表按钮与详情自动加载独立开关） ----
     toggle("enableScreenSvg", "ScreenshotFeature", "列表长缩略图", {
-        description: "在列表卡片上显示长缩略图按钮；手动点击仍遵守截图来源白名单。",
+        description: "在列表卡片显示长缩略图入口",
         surfaces: ["full"], defaultValue: yes,
     });
-    toggle("enableLoadScreenShot", "ScreenshotFeature", "长缩略图", {
-        description: "在详情页与 FC2 页面自动加载长缩略图及对应截图来源请求。",
+    toggle("enableLoadScreenShot", "ScreenshotFeature", "详情页长缩略图", {
+        description: `在详情页与 ${PRODUCT_NAMES.fc2} 页面加载长缩略图`,
         surfaces: ["full", "quick"],
     });
 
     // ---- Preview（总开关 + DMM 增强子开关） ----
     toggle("enablePreviewVideo", "PreviewVideoFeature", "预览视频", {
-        description: "预览视频总开关。关闭后 JavDB/JavBus 详情与列表卡片的预览入口、播放器与 DMM 请求全部消失。",
+        description: "在列表与详情页显示预览视频",
         surfaces: ["full", "quick"],
     });
-    toggle("enableLoadPreviewVideo", "PreviewVideoFeature", "DMM 高画质增强", {
-        description: "解析更高画质的 DMM 预览视频；关闭后仍可使用宿主原生预览，但不发起 DMM 请求。",
+    toggle("enableLoadPreviewVideo", "PreviewVideoFeature", `${PRODUCT_NAMES.dmm} 高画质预览`, {
+        description: `优先使用 ${PRODUCT_NAMES.dmm} 高画质预览，关闭后使用站点预览`,
         surfaces: ["full", "quick"],
         indent: true,
     });
 
     // ---- 卡片按钮 ----
-    toggle("enableVideoSvg", "CoverButtonFeature", "卡片播放视频", { description: "在列表卡片上显示播放视频按钮。", surfaces: ["full"] });
-    toggle("enableHandleSvg", "CoverButtonFeature", "卡片鉴定处理", { description: "在列表卡片上显示鉴定处理菜单。", surfaces: ["full"] });
-    toggle("enableSiteSvg", "CoverButtonFeature", "卡片第三方网站", { description: "在列表卡片上显示第三方网站菜单。", surfaces: ["full"] });
-    toggle("enableCopySvg", "CoverButtonFeature", "卡片复制", { description: "在列表卡片上显示复制菜单。", surfaces: ["full"] });
+    toggle("enableVideoSvg", "CoverButtonFeature", "播放", { description: "", surfaces: ["full"] });
+    toggle("enableHandleSvg", "CoverButtonFeature", "鉴定", { description: "", surfaces: ["full"] });
+    toggle("enableSiteSvg", "CoverButtonFeature", "第三方站点", { description: "", surfaces: ["full"] });
+    toggle("enableCopySvg", "CoverButtonFeature", "复制", { description: "", surfaces: ["full"] });
 
     // ---- 列表 ----
     toggle("autoPage", "AutoPageFeature", "瀑布流", {
-        description: "连续加载列表；启用后普通列表只支持默认排序。",
+        description: "滚动到底加载下一页，开启后仅支持默认排序",
         surfaces: ["full", "quick"],
     });
     toggle("translateTitle", "TranslateFeature", "标题翻译", {
-        description: "翻译列表和详情页标题。",
+        description: "翻译列表与详情页标题",
         surfaces: ["full", "quick"],
     });
     toggle("hoverBigImg", "ListImageFeature", "悬浮大图", {
-        description: "鼠标悬停封面时显示大图。",
+        description: "悬停封面时显示大图",
         surfaces: ["full", "quick"],
         defaultValue: no,
     });
     registry.register({
-        key: "defaultQuickFilterTab", owner: "ListPageFeature", label: "列表默认筛选",
-        description: "进入列表页时默认选中的筛选标签，修改后下次进入列表生效。",
+        key: "defaultQuickFilterTab", owner: "ListPageFeature", label: "默认筛选",
+        description: "下次进入列表时生效",
         type: "select", defaultValue: "waitCheck", effect: "nextNavigation", surfaces: ["full"],
         options: Object.freeze([
             { value: "all", label: "全部" }, { value: "waitCheck", label: "待鉴定" }, { value: "favorite", label: "收藏" },
-            { value: "hasDown", label: "下载" }, { value: "hasWatch", label: "已看" }, { value: "blockedItems", label: "屏蔽项" },
+            { value: "hasDown", label: "已下载" }, { value: "hasWatch", label: "已观看" }, { value: "blockedItems", label: "屏蔽项" },
         ]),
     });
 
     // ---- 详情 ----
     toggle("enableLoadReview", "ReviewFeature", "评论", {
-        description: "在详情页与 FC2 页面加载评论；显式关闭 no 时保持关闭。",
+        description: `在详情页与 ${PRODUCT_NAMES.fc2} 页面显示评论`,
         surfaces: ["full", "quick"],
     });
-    toggle("enableLoadOtherSite", "OtherSiteFeature", "外部站点", {
-        description: "在详情页提供第三方站点入口。",
+    toggle("enableLoadOtherSite", "OtherSiteFeature", "第三方站点", {
+        description: "在详情页显示第三方站点入口",
         surfaces: ["full", "quick"],
     });
     toggle("enableLoadActressInfo", "ActressInfoFeature", "演员信息", {
-        description: "在详情页与演员页展示演员资料。",
+        description: "在详情页与演员页显示资料",
         surfaces: ["full", "quick"],
     });
     toggle("enableMagnetsFilter", "MagnetFeature", "磁力质量过滤", {
-        description: "在资源列表中过滤低质量磁力。",
+        description: "隐藏低质量磁力",
         surfaces: ["full"],
     });
 
     // ---- 界面/布局 ----
-    toggle("needClosePage", "WorkflowFeature", "鉴定后立即关闭", {
-        description: "完成鉴定后关闭当前详情窗口。",
+    toggle("needClosePage", "WorkflowFeature", "鉴定后关闭详情页", {
+        description: "鉴定完成后自动关闭",
         surfaces: ["full", "quick"],
     });
     toggle("enableVerticalModel", "LayoutFeature", "竖图模式", {
-        description: "使用竖图比例的列表卡片布局。",
+        description: "使用竖图比例显示封面",
         surfaces: ["full", "quick"],
         defaultValue: no,
     });
@@ -114,35 +123,35 @@ export function registerDefaultSettings(registry) {
     registry.register({ key: "videoMuted", owner: "PreviewVideoFeature", label: "视频默认静音", type: "boolean", defaultValue: true, effect: "live", surfaces: [] });
 
     // ---- 云盘服务（与完整设置的云盘面板共用 Catalog / Binding） ----
-    toggle("enable123Offline", "OfflineFeature", "123 云盘离线", {
-        description: "支持 Magnet，需要先在 123 云盘页面同步授权。",
+    toggle("enable123Offline", "OfflineFeature", `${PRODUCT_NAMES.pan123}离线`, {
+        description: `支持磁力，需先在 ${PRODUCT_NAMES.pan123}页面同步授权`,
         surfaces: ["full"], section: "cloud", defaultValue: true, normalize: (/** @type {unknown} */ value) => parseBooleanSetting(value, false),
     });
-    toggle("enable115Offline", "OfflineFeature", "115 离线下载", {
-        description: "支持 Magnet 与 ED2K。",
+    toggle("enable115Offline", "OfflineFeature", `${PRODUCT_NAMES.one115} 离线下载`, {
+        description: "支持磁力与 ED2K",
         surfaces: ["full"], section: "cloud", defaultValue: false, normalize: (/** @type {unknown} */ value) => parseBooleanSetting(value, false),
     });
     registry.register({
-        key: "offlineProviderMode", owner: "OfflineFeature", label: "默认服务", description: "选择离线提交时优先使用的服务。",
+        key: "offlineProviderMode", owner: "OfflineFeature", label: "默认服务", description: "选择优先使用的离线服务",
         type: "select", defaultValue: "ask", effect: "live", surfaces: ["full"], section: "cloud",
         options: Object.freeze([{ value: "ask", label: "每次询问" }, { value: "123", label: "优先 123" }, { value: "115", label: "优先 115" }]),
         normalize: (/** @type {unknown} */ value) => ["ask", "123", "115"].includes(String(value)) ? String(value) : "ask",
     });
-    toggle("enable115Match", "OfflineFeature", "115 文件匹配", {
-        description: "根据当前番号查找网盘中已存在的视频。",
+    toggle("enable115Match", "OfflineFeature", `${PRODUCT_NAMES.one115} 文件匹配`, {
+        description: "按番号查找云盘中的影片",
         surfaces: ["full"], section: "cloud", defaultValue: false, normalize: (/** @type {unknown} */ value) => parseBooleanSetting(value, false),
     });
-    toggle("enable115LoginRedirect", "OfflineFeature", "未登录时提供登录入口", {
-        description: "提交失败时显示 115 登录地址。",
+    toggle("enable115LoginRedirect", "OfflineFeature", "未登录时显示入口", {
+        description: `提交失败时显示 ${PRODUCT_NAMES.one115} 登录入口`,
         surfaces: ["full"], section: "cloud", defaultValue: false, normalize: (/** @type {unknown} */ value) => parseBooleanSetting(value, false),
     });
     registry.register({
-        key: "oneOneFiveConcurrency", owner: "OfflineFeature", label: "匹配并发数", description: "控制 115 文件匹配的并发请求数，范围 1–10。",
+        key: "oneOneFiveConcurrency", owner: "OfflineFeature", label: "匹配并发数", description: "范围 1–10，立即生效",
         type: "number", defaultValue: 4, effect: "live", surfaces: ["full"], section: "cloud",
         min: 1, max: 10, step: 1, normalize: (/** @type {unknown} */ value) => normalizeInteger(value, 4, 1, 10),
     });
     registry.register({
-        key: "oneOneFiveCacheMinutes", owner: "OfflineFeature", label: "匹配缓存（分钟）", description: "设置 115 匹配结果缓存时间，范围 1–1440 分钟。",
+        key: "oneOneFiveCacheMinutes", owner: "OfflineFeature", label: "匹配缓存（分钟）", description: "范围 1–1440 分钟，立即生效",
         type: "number", defaultValue: 60, effect: "live", surfaces: ["full"], section: "cloud",
         min: 1, max: 1440, step: 1, normalize: (/** @type {unknown} */ value) => normalizeInteger(value, 60, 1, 1440),
     });

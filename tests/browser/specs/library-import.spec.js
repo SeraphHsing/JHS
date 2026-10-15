@@ -36,8 +36,8 @@ test("JavDB want/watch import is mounted and completed through the Library featu
   expect(await page.evaluate(() => window.unsafeWindow.pluginManager.getPluginNames().includes("WantAndWatchedVideosPlugin"))).toBe(false);
   expect(await page.evaluate(() => window.unsafeWindow.pluginManager.getPluginDescriptors().some(item => item.name === "WantAndWatchedVideosPlugin"))).toBe(true);
   await page.locator("#wantWatchBtn").click();
-  await expect(page.locator(".layui-layer-dialog-content")).toContainText("想看的影片导入到 JHS 收藏");
-  await page.locator(".layui-layer-btn0").click();
+  await expect(page.locator(".layui-layer-dialog-content")).toContainText("将想看的影片导入 JHS 收藏？");
+  await page.locator(".layui-layer-btn").getByText("导入", { exact: true }).click();
   await page.waitForFunction(async () => (await window.stateService.getState("ABC-123"))?.stateFlags?.favorite === true);
   await expect(page.locator("#wantWatchBtn")).toBeVisible();
 });

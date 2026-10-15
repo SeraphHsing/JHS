@@ -139,8 +139,8 @@ export class StorageManager {
     }
     _saveSingleCar(e, t) {
         let {carNum: n, url: a, names: i, actionType: s, publishTime: o, starId: r} = e;
-        if (!n) throw show.error("番号为空!"), new Error("番号为空!");
-        if (!a) throw show.error("url为空!"), new Error("url为空!");
+        if (!n) throw show.error("请输入番号"), new Error("番号为空!");
+        if (!a) throw show.error("请输入链接"), new Error("url为空!");
         a.includes("http") || (a = window.location.origin + a), i && (i = i.trim());
         let l = t.find((e => e.carNum === n));
         if (l) i && (l.names = i), a && (l.url = a), o && (l.publishTime = o), l.updateDate = utils.getNowStr(); else {
@@ -184,14 +184,14 @@ export class StorageManager {
 
           default:
             const e = "actionType错误, 请联系作者更正: " + s;
-            throw show.error(e), new Error(e);
+            throw show.error("操作无法完成，请反馈给作者"), new Error(e);
         }
     }
     async saveCar(e) {
         const carNum = normalizeCarNum(e.carNum), flag = legacyActionToFlag(e.actionType);
-        if (!carNum) throw show.error("番号为空!"), new Error("番号为空!");
-        if (!e.url) throw show.error("url为空!"), new Error("url为空!");
-        if (!flag) throw show.error("actionType错误, 请联系作者更正: " + e.actionType), new Error("actionType错误, 请联系作者更正: " + e.actionType);
+        if (!carNum) throw show.error("请输入番号"), new Error("番号为空!");
+        if (!e.url) throw show.error("请输入链接"), new Error("url为空!");
+        if (!flag) throw show.error("操作无法完成，请反馈给作者"), new Error("actionType错误, 请联系作者更正: " + e.actionType);
         const existing = await this.getCar(carNum);
         if (normalizeStateFlags(existing?.stateFlags)[flag]) {
             const messages = { blocked: "已在屏蔽列表中", favorite: "已在收藏列表中", downloaded: "已标记为已下载", watched: "已标记为已观看" }, message = `${carNum} ${messages[flag]}`;
@@ -201,8 +201,8 @@ export class StorageManager {
     }
     async updateCarInfo(e) {
         let {carNum: t, url: n, names: a, actionType: i, publishTime: s, remark: o} = e;
-        if (!t) throw show.error("番号为空!"), new Error("番号为空!");
-        if (!n) throw show.error("url为空!"), new Error("url为空!");
+        if (!t) throw show.error("请输入番号"), new Error("番号为空!");
+        if (!n) throw show.error("请输入链接"), new Error("url为空!");
         a && (a = a.trim());
         t = normalizeCarNum(t);
         const l = await this.getCar(t);
@@ -211,16 +211,16 @@ export class StorageManager {
             throw show.error(e), new Error(e);
         }
         const flag = legacyActionToFlag(i);
-        if (!flag) { const e = "actionType错误, 请联系作者更正: " + i; throw show.error(e), new Error(e); }
+        if (!flag) { const e = "actionType错误, 请联系作者更正: " + i; throw show.error("操作无法完成，请反馈给作者"), new Error(e); }
         return this.stateService.patch(t, { [flag]: !0 }, { type: "legacy-update", record: { carNum: t, names: a, url: n, remark: o, publishTime: s } });
     }
     async saveCarList(e) {
-        if (!e || !Array.isArray(e) || 0 === e.length) throw show.error("记录列表为空!"), new Error("记录列表为空!");
+        if (!e || !Array.isArray(e) || 0 === e.length) throw show.error("请选择记录"), new Error("记录列表为空!");
         const existing = await this.getCarMap(), seen = new Set, groups = new Map;
         for (const item of e) {
             const carNum = normalizeCarNum(item.carNum), flag = legacyActionToFlag(item.actionType);
-            if (!carNum) throw show.error("番号为空!"), new Error("番号为空!");
-            if (!item.url) throw show.error("url为空!"), new Error("url为空!");
+            if (!carNum) throw show.error("请输入番号"), new Error("番号为空!");
+            if (!item.url) throw show.error("请输入链接"), new Error("url为空!");
             if (!flag) throw new Error("actionType错误, 请联系作者更正: " + item.actionType);
             const duplicateKey = `${carNum}:${flag}`;
             if (seen.has(duplicateKey) || normalizeStateFlags(existing.get(carNum)?.stateFlags)[flag]) throw new Error(`${carNum} 状态已存在`);
@@ -240,7 +240,7 @@ export class StorageManager {
                 if (!t.newVideoList || !Array.isArray(t.newVideoList)) return t;
                 const a = t.newVideoList.filter((t => {
                     const a = normalizeCarNum("string" == typeof t ? t : t.carNum), i = targets.has(a);
-                    return i && (clog.log("移除关联女优新作品", t.name, a), changed.add(a)), !i;
+                    return i && (clog.log("移除关联演员新作品", t.name, a), changed.add(a)), !i;
                 }));
                 return { ...t, newVideoList: a };
             }));
@@ -426,9 +426,9 @@ export class StorageManager {
             i = i.replace(d, ""), s = s.map((e => e.replace(d, "")));
             let h = t.find((t => t.starId === e));
             if (h) {
-                h.avatar && h.avatar.includes("https") || o && (clog.log(o), h.avatar = o, clog.html(`<span class="jhs-layout-eeefd8c8">补全女优头像: ${escapeHtml(i)}</span>`),
-                n++), !h.actressType && c && (h.actressType = c, clog.html(`<span class="jhs-layout-eeefd8c8">补全女优类别: ${escapeHtml(i)} ${escapeHtml(c)}</span>`),
-                n++), h.name.includes(d) && (h.name = i, h.allName = s, clog.html(`<span class="jhs-layout-eeefd8c8">更正女优名字: ${escapeHtml(i)} ${escapeHtml(s)}</span>`),
+                h.avatar && h.avatar.includes("https") || o && (clog.log(o), h.avatar = o, clog.html(`<span class="jhs-layout-eeefd8c8">补全演员头像: ${escapeHtml(i)}</span>`),
+                n++), !h.actressType && c && (h.actressType = c, clog.html(`<span class="jhs-layout-eeefd8c8">补全演员类别: ${escapeHtml(i)} ${escapeHtml(c)}</span>`),
+                n++), h.name.includes(d) && (h.name = i, h.allName = s, clog.html(`<span class="jhs-layout-eeefd8c8">更正演员名字: ${escapeHtml(i)} ${escapeHtml(s)}</span>`),
                 n++);
                 continue;
             }
@@ -471,7 +471,7 @@ export class StorageManager {
             if (!e.newVideoList || !Array.isArray(e.newVideoList)) return e;
             const t = e.newVideoList.filter((t => {
                 const s = "string" == typeof t ? t : t.carNum, a = s.startsWith(n);
-                return a && (clog.log("移除关联女优新作品", e.name, s), i = !0), !a;
+                return a && (clog.log("移除关联演员新作品", e.name, s), i = !0), !a;
             }));
             return {
                 ...e,
@@ -518,7 +518,7 @@ export class StorageManager {
     }
     invalidateSettingCache() { this._invalidateCache(this.setting_key); }
     async saveSettingItem(e, t) {
-        if (!e) return void show.error("key 不能为空");
+        if (!e) return void show.error("设置项无效，请重新打开设置");
         // 6.5: route through the single SettingsService write entry when it is available.
         if (globalThis.settingsService?.set) return globalThis.settingsService.set(e, t);
         const write = async () => {
@@ -726,11 +726,11 @@ export class StorageManager {
             Array.isArray(e?.newVideoList) && (f += e.newVideoList.filter((e => { const t = "string" == typeof e ? e : e.carNum; return i.has(t); })).length);
         })), f && o("stored-new-video", "新作品列表中已有鉴定记录", f);
         const v = e.filter((e => e && e.carNum && !e.url)).length;
-        v && r("missing-url", "番号记录缺失 url，需要人工确认来源", v);
+        v && r("missing-url", "影片链接缺失，请确认来源", v);
         const b = t.filter((e => e && !e.starId)).length + n.filter((e => e && !e.starId)).length;
-        b && r("missing-star-id", "演员缺失 starId，需要人工确认身份", b);
+        b && r("missing-star-id", "演员信息缺失，请确认身份", b);
         const w = new Set(n.map((e => e && e.starId)).filter(Boolean)), y = a.filter((e => e && e.starId && !w.has(e.starId))).length;
-        return y && r("orphan-blacklist-car", "黑名单作品找不到关联演员", y), s;
+        return y && r("orphan-blacklist-car", "黑名单影片找不到关联演员", y), s;
     }
     async repairDataHealth() {
         return this._withCrossTabLock("jhs_data_health_repair", async () => {

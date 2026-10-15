@@ -1,5 +1,5 @@
 import { readTestFile } from "./helpers/read-test-file.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
 import jquery from "jquery";
 import vm from "node:vm";
@@ -9,6 +9,11 @@ import { JavDbHostAdapter } from "../src/platform/hosts/javdb-host-adapter.js";
 import { JavBusHostAdapter } from "../src/platform/hosts/javbus-host-adapter.js";
 import { LifecycleScope } from "../src/core/lifecycle-scope.js";
 import { UnifiedOfflineController } from "../src/features/external-bridge/unified-offline-controller.js";
+import { OwnedPopover } from "../src/core/owned-popover.js";
+import { getIcon } from "../src/core/icons.js";
+import { NativeDetailMediaController, NATIVE_DETAIL_MEDIA_CSS } from "../src/features/detail/native-detail-media-controller.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 const workspaceSource = readTestFile(join(process.cwd(), "src/features/detail/detail-workspace-controller.js"), "utf8").replace(/^import .*;\r?\n/m, "");
 const adapterSource = readTestFile(join(process.cwd(), "src/ui/detail/detail-resource-adapter.js"), "utf8");
@@ -30,9 +35,10 @@ function createEventBus() {
 function createContext(html, { javdb = true } = {}) {
     const dom = new JSDOM(html, { url: javdb ? "https://javdb.com/v/test?hideNav=1" : "https://www.javbus.com/ABC-1" }), $ = jquery(dom.window), eventBus = createEventBus();
     dom.window.isDetailPage = true;
+    vi.stubGlobal("MutationObserver", dom.window.MutationObserver);
     const context = vm.createContext({
         window: dom.window, document: dom.window.document, Node: dom.window.Node, Event: dom.window.Event,
-        MutationObserver: dom.window.MutationObserver, $, r: javdb, l: !javdb, BasePlugin, jhsEventBus: eventBus,
+        MutationObserver: dom.window.MutationObserver, NativeDetailMediaController, NATIVE_DETAIL_MEDIA_CSS, OwnedPopover, $, getIcon, r: javdb, l: !javdb, BasePlugin, jhsEventBus: eventBus,
         setTimeout, clearTimeout, queueMicrotask, clog: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
         utils: { loopDetector: (condition, callback) => condition() && callback() },
         storageManager: {}, stateService: {}, show: {}, layer: {}, escapeHtml: value => String(value),
@@ -41,10 +47,7 @@ function createContext(html, { javdb = true } = {}) {
     vm.runInContext(`${selectSource};globalThis.JhsSelect=JhsSelect`, context);
     vm.runInContext(`${adapterSource};globalThis.getDetailResourceAdapter=getDetailResourceAdapter`, context);
     vm.runInContext(`${workspaceSource};globalThis.DetailWorkspaceController=DetailWorkspaceController`, context);
-    const observers = new Set, scope = {
-        observe(target, callback, options) { const observer = new dom.window.MutationObserver(callback); observer.observe(target, options), observers.add(observer); return observer; },
-        releaseObserver(observer) { observer.disconnect(), observers.delete(observer); },
-    };
+    const scope = new LifecycleScope("detail-test");
     const host = javdb ? new JavDbHostAdapter(dom.window.document, dom.window.location) : new JavBusHostAdapter(dom.window.document, dom.window.location);
     return { dom, $, context, eventBus, scope, host };
 }

@@ -28,17 +28,30 @@ function ratio(a, b) {
   return (l1 + 0.05) / (l2 + 0.05);
 }
 
-function extractTokens(source) {
-  const tokens = {};
-  const tokenPattern = /--jhs-([a-z0-9-]+):\s*(#[0-9a-fA-F]{6})/g;
+function extractTokens(source, inherited = {}) {
+  const declarations = { ...inherited };
+  const tokenPattern = /--jhs-([a-z0-9-]+):\s*([^;]+);/g;
   let m;
-  while ((m = tokenPattern.exec(source))) tokens[m[1]] = m[2].toLowerCase();
-  return tokens;
+  while ((m = tokenPattern.exec(source))) declarations[m[1]] = m[2].trim();
+  const tokens = {};
+  const resolve = (name, seen = new Set()) => {
+    if (seen.has(name)) throw new Error(`Circular theme token: ${name}`);
+    const value = declarations[name];
+    if (/^#[0-9a-fA-F]{6}$/.test(value || "")) return value.toLowerCase();
+    const alias = /^var\(--jhs-([a-z0-9-]+)\)$/.exec(value || "");
+    return alias ? resolve(alias[1], new Set([...seen, name])) : undefined;
+  };
+  for (const name of Object.keys(declarations)) {
+    const value = resolve(name);
+    if (value) tokens[name] = value;
+  }
+  return { declarations, tokens };
 }
 
+const light = extractTokens(themeSource.slice(0, darkIdx));
 const themes = {
-  light: { name: "light", tokens: extractTokens(themeSource.slice(0, darkIdx)) },
-  dark: { name: "dark", tokens: extractTokens(themeSource.slice(darkIdx)) }
+  light: { name: "light", tokens: light.tokens },
+  dark: { name: "dark", tokens: extractTokens(themeSource.slice(darkIdx), light.declarations).tokens }
 };
 
 let failures = 0;
@@ -69,11 +82,15 @@ for (const theme of Object.values(themes)) {
     assertPair(theme, `${t} on surface`, t, "surface", TEXT_TARGET);
     assertPair(theme, `${t} on surface-2`, t, "surface-2", TEXT_TARGET);
   }
-  // 输入框 / 禁用态
+  // 禁用控件按 WCAG 1.4.3/1.4.11 豁免；可交互控件与占位符仍执行原门槛。
   assertPair(theme, "placeholder on input-bg", "placeholder", "input-bg", TEXT_TARGET);
-  assertPair(theme, "disabled-text on disabled-bg", "disabled-text", "disabled-bg", TEXT_TARGET);
+  for (const token of ["text-disabled", "disabled-text", "disabled-bg"]) {
+    if (!theme.tokens[token]) { console.log(`FAIL [${theme.name}] missing disabled token ${token}`); failures++; }
+  }
   // 边界
-  assertPair(theme, "border-strong on surface (UI boundary)", "border-strong", "surface", BOUNDARY_TARGET);
+  for (const background of ["surface", "surface-2", "input-bg"]) {
+    assertPair(theme, `border-strong on ${background} (UI boundary)`, "border-strong", background, BOUNDARY_TARGET);
+  }
   // 状态语义色
   for (const s of ["filter", "fav", "down", "watch"]) {
     assertPair(theme, `${s}-on on ${s}`, `status-${s}-on`, `status-${s}`, TEXT_TARGET);
@@ -83,11 +100,13 @@ for (const theme of Object.values(themes)) {
   // 主操作色
   assertPair(theme, "accent-text-on on accent", "accent-text-on", "accent", TEXT_TARGET);
   assertPair(theme, "accent-text-on on accent-hover", "accent-text-on", "accent-hover", TEXT_TARGET);
+  assertPair(theme, "accent on accent-tint", "accent", "accent-tint", TEXT_TARGET);
   // 通用反馈语义
   assertPair(theme, "danger-text-on on danger", "danger-text-on", "danger", TEXT_TARGET);
   assertPair(theme, "danger on danger-tint", "danger", "danger-tint", TEXT_TARGET);
   assertPair(theme, "warning-text-on on warning", "warning-text-on", "warning", TEXT_TARGET);
   assertPair(theme, "warning on warning-tint", "warning", "warning-tint", TEXT_TARGET);
+  assertPair(theme, "success on success-tint", "success", "success-tint", TEXT_TARGET);
   // 品牌色
   assertPair(theme, "brand-javdb on surface", "brand-javdb", "surface", TEXT_TARGET);
   assertPair(theme, "brand-javbus on surface", "brand-javbus", "surface", TEXT_TARGET);
@@ -100,4 +119,4 @@ if (failures > 0) {
   console.error(`Contrast audit FAILED: ${failures} check(s) failed`);
   process.exit(1);
 }
-console.log("Contrast audit passed: light + dark tokens meet WCAG AA targets (text >= 4.5, boundary >= 3)");
+console.log("Contrast audit passed: light + dark tokens meet WCAG AA targets (active text >= 4.5, boundary >= 3; disabled controls exempt)");

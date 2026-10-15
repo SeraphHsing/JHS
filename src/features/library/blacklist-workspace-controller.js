@@ -68,7 +68,7 @@ export class BlacklistWorkspaceController {
                 <div class="jhs-layout-da5a4919">
                     <div class="jhs-layout-31a824a2">
                         <button type="button" id="checkBlacklistBtn" class="jhs-btn jhs-btn--secondary" data-tip="上次整批检测: ${safeLastCheck}; 检测间隔时间: ${interval}小时">${FEATURE_ICONS.blacklistSvg}<span>手动检测黑名单</span></button>
-                        <button type="button" class="jhs-btn jhs-btn--ghost" id="toSetting">${FEATURE_ICONS.settingSvg}<span>配置</span></button>
+                        <button type="button" class="jhs-btn jhs-btn--ghost" id="toSetting">${FEATURE_ICONS.settingSvg}<span>设置</span></button>
                     </div>
                     <div class="jhs-layout-31a824a2">
                         <select id="dataType" class="jhs-select-source"><option value="" selected>所有</option><option value="actor">男演员</option><option value="actress">女演员</option></select>
@@ -152,7 +152,7 @@ export class BlacklistWorkspaceController {
         } catch (error) {
             if (this.isCurrent(generation)) {
                 this.logger?.error?.("黑名单任务执行失败", error);
-                this.notifications.error(error instanceof Error ? error.message : "黑名单任务执行失败");
+                this.notifications.error("黑名单更新失败，请重试");
             }
         } finally {
             if (this.manualScanAbortController === readyAbort) this.manualScanAbortController = null;
@@ -230,7 +230,7 @@ export class BlacklistWorkspaceController {
         const data = await this.getTableData();
         if (!this.isCurrent(generation)) return;
         const placeholder = this.document.createElement("div");
-        renderStateView(placeholder, { type: "empty", title: "没有符合当前筛选条件的黑名单记录" });
+        renderStateView(placeholder, { type: "empty", title: "暂无符合筛选的黑名单记录" });
         const tableRoot = this.blacklistRoot?.find("#table-container").get(0);
         if (!tableRoot) return;
         this.tableObj = createJhsTable(/** @type {any} */ (this.window).Tabulator, tableRoot, {
@@ -284,15 +284,15 @@ export class BlacklistWorkspaceController {
                     const button = cell.getElement().querySelector(".delete-btn");
                     button?.addEventListener("click", (/** @type {Event} */ event) => {
                         if (!actor.name) return void this.notifications.error("获取名称失败");
-                        if (!actor.starId) return void this.notifications.error("获取starId失败");
-                        this.ui.confirm(event, `是否移除对 ${escapeHtml(actor.name)} 的屏蔽?`, async () => {
+                        if (!actor.starId) return void this.notifications.error("获取演员信息失败");
+                        this.ui.confirm(event, `解除对「${escapeHtml(actor.name)}」的屏蔽？`, async () => {
                             await this.state.removeBlacklistActor(actor.starId);
-                            this.notifications.info("操作成功");
+                            this.notifications.info("已解除屏蔽");
                             await this.reloadTable();
-                        });
+                        }, { confirmText: "解除屏蔽" });
                     });
                 });
-                return '<button type="button" class="jhs-btn jhs-btn--danger delete-btn"><span>删除</span></button>';
+                return '<button type="button" class="jhs-btn jhs-btn--danger delete-btn"><span>解除屏蔽</span></button>';
             } },
         ];
     }

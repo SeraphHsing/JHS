@@ -43,7 +43,7 @@ describe("JavDB navigation Feature", () => {
         expect(document.querySelector(".actor-box strong")?.classList.contains("highlight-red")).toBe(false);
         expect(document.querySelector("#old-feedback")).toBeNull();
         expect(document.querySelector("#porn-link")).toBeNull();
-        expect(document.querySelector(".navbar-item.has-dropdown .navbar-item")?.textContent).toBe("反饋");
+        expect(document.querySelector(".navbar-item.has-dropdown .navbar-item")?.textContent).toBe("反馈");
         const external = document.querySelector('.navbar-item.has-dropdown a[href="https://catalog.example/path"]');
         expect(external?.textContent).toBe("<外部目录>");
         expect(external?.rel).toBe("nofollow noopener");

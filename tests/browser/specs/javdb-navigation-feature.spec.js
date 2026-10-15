@@ -37,7 +37,7 @@ test.describe("JavDB navigation Feature migration", () => {
     await expect(page.locator(".video-title strong")).toHaveClass(/highlight-red/);
     await expect(page.locator("#old-feedback")).toHaveCount(0);
     await expect(page.locator("#porn-link")).toHaveCount(0);
-    await expect(page.locator(".navbar-item.has-dropdown a[href='/feedbacks/new']")).toHaveText("反饋");
+    await expect(page.locator(".navbar-item.has-dropdown a[href='/feedbacks/new']")).toHaveText("反馈");
 
     await page.setViewportSize({ width: 1701, height: 900 });
     await page.evaluate(() => {

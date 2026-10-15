@@ -32,8 +32,9 @@ function createController({ screenshotAvailable = true, settings: settingValues 
         confirm: vi.fn(),
         loading: () => ({ close: vi.fn() }),
         openImageViewer: vi.fn(),
+        openPage: vi.fn(),
     };
-    const notifications = { error: vi.fn(), ok: vi.fn() };
+    const notifications = { error: vi.fn(), ok: vi.fn(), info: vi.fn() };
     const diagnostics = { recordError: vi.fn() };
     const navigation = { open: vi.fn() };
     const list = {
@@ -61,6 +62,8 @@ describe("native list card actions Feature", () => {
         current?.scope.dispose();
         if (current) current.document.body.innerHTML = "";
         current = null;
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
     });
 
     it("gates screenshot and DMM controls while applying card settings live", async () => {
@@ -105,7 +108,22 @@ describe("native list card actions Feature", () => {
             expect.objectContaining({ allowWhenDisabled: true, scope: current.scope }),
         ));
         expect(current.ui.openImageViewer).toHaveBeenCalledOnce();
-        expect(current.ui.openImageViewer.mock.calls[0][0].src).toBe("https://images.example.test/screenshot.jpg");
+        expect(current.ui.openImageViewer.mock.calls[0][0]).toBe("https://images.example.test/screenshot.jpg");
+    });
+
+    it("keeps the clicked screenshot button through asynchronous resolution and later delegated handlers", async () => {
+        current = createController();
+        let resolveScreenshot;
+        current.controller.screenshot.resolve.mockImplementation(() => new Promise(resolve => { resolveScreenshot = resolve; }));
+        await current.controller.start();
+        const trigger = current.document.querySelector(".screenSvg"), card = trigger.closest(".item");
+        current.$(current.document).on("click.screenshotTriggerTest", ".item", () => {});
+        current.scope.addCleanup(() => current.$(current.document).off(".screenshotTriggerTest"));
+        trigger.click();
+        expect(current.ui.openImageViewer).not.toHaveBeenCalled();
+        resolveScreenshot({ url: "https://images.example.test/delayed.jpg" });
+        await vi.waitFor(() => expect(current.ui.openImageViewer).toHaveBeenCalledOnce());
+        expect(current.ui.openImageViewer.mock.calls[0][1]).toEqual({ imageKind:"contact-sheet", owner: card, trigger, scope: current.scope });
     });
 
     it("applies third-party and copy card switches live", async () => {
@@ -125,7 +143,7 @@ describe("native list card actions Feature", () => {
         expect(display(".copySvg")).not.toBe("none");
     });
 
-    it("applies the DMM-only video button switch live when preview is available", async () => {
+    it("keeps the detail fallback available when DMM is disabled", async () => {
         current = createController({ settings: { enableVideoSvg: "yes", enablePreviewVideo: "yes", enableLoadPreviewVideo: "yes" } });
         await current.controller.start();
         const card = current.document.querySelector(".item");
@@ -140,7 +158,7 @@ describe("native list card actions Feature", () => {
         current.settings.update({ enablePreviewVideo: "no" });
         expect(display()).toBe("none");
         current.settings.update({ enablePreviewVideo: "yes", enableLoadPreviewVideo: "no" });
-        expect(display()).toBe("none");
+        expect(display()).not.toBe("none");
         current.settings.update({ enableLoadPreviewVideo: "yes" });
         expect(display()).not.toBe("none");
     });
@@ -154,7 +172,7 @@ describe("native list card actions Feature", () => {
             type: "list-card-state",
             record: { carNum: "ABC-123", url: "/v/abc-123", names: "测试演员", publishTime: "2026-08-25", fc2Source: null },
         });
-        expect(current.notifications.ok).toHaveBeenCalledWith("操作成功");
+        expect(current.notifications.ok).toHaveBeenCalledWith("已更新影片状态");
     });
 
     it("escapes card numbers before the confirmation reaches an HTML renderer", async () => {
@@ -177,7 +195,7 @@ describe("native list card actions Feature", () => {
         const trigger = current.document.querySelector(".handleSvg .jhs-card-menu-trigger");
         trigger.click();
         expect(trigger.getAttribute("aria-expanded")).toBe("true");
-        const first = current.document.querySelector(".jhs-card-menu [role='menuitem']");
+        const first = current.document.querySelector(".jhs-owned-popover [role='menuitem']");
         first.dispatchEvent(new current.window.KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
         expect(current.document.activeElement.textContent).toContain("屏蔽");
 
@@ -194,4 +212,63 @@ describe("native list card actions Feature", () => {
         expect(current.settings.listeners.size).toBe(0);
         expect(current.document.querySelectorAll(".jhs-card-menu.is-open, .loading-spinner, [id$='_preview_video']")).toHaveLength(0);
     });
+    it("falls back to the existing detail preview without requesting DMM when its sub-switch is off",async()=>{
+        current=createController({settings:{enablePreviewVideo:"yes",enableLoadPreviewVideo:"no"}});
+        current.controller.movie.preview=vi.fn(); await current.controller.start();
+        current.document.querySelector('.videoSvg').click();
+        expect(current.controller.movie.preview).not.toHaveBeenCalled();
+        expect(current.ui.openPage).toHaveBeenCalledWith('/v/abc-123','ABC-123',true,{preview:true});
+        expect(current.controller.activePreview).toBeNull();
+    });
+    it("returns to the cover and ignores delayed resolution after cancellation",async()=>{
+        current=createController({settings:{enablePreviewVideo:"yes"}}); vi.stubGlobal('clog',{debug:vi.fn(),warn:vi.fn(),error:vi.fn()});
+        let resolve; current.controller.movie.preview=vi.fn(()=>new Promise(done=>resolve=done));
+        current.controller.storage={getLocal:()=>null,setLocal:vi.fn()}; await current.controller.start();
+        const button=current.document.querySelector('.videoSvg'); button.click(); await Promise.resolve(); button.click();
+        resolve({sources:{mhb_w:'https://example.test/preview.mp4'}}); await new Promise(done=>setTimeout(done,0));
+        expect(current.document.querySelector('.jhs-card-preview')).toBeNull();
+        expect(current.controller.activePreview).toBeNull(); expect(current.ui.openPage).not.toHaveBeenCalled();
+    });
+    it("uses card identity for duplicate movie numbers and never revives the previous card",async()=>{
+        current=createController({settings:{enablePreviewVideo:"yes"}}); vi.stubGlobal('clog',{debug:vi.fn(),warn:vi.fn(),error:vi.fn()});
+        const original=current.document.querySelector('.item'); original.after(original.cloneNode(true));
+        const pending=[]; current.controller.movie.preview=vi.fn(()=>new Promise(done=>pending.push(done)));
+        current.controller.storage={getLocal:()=>null,setLocal:vi.fn()}; await current.controller.start();
+        const buttons=current.document.querySelectorAll('.videoSvg'); buttons[0].click(); await Promise.resolve(); buttons[1].click(); await Promise.resolve();
+        pending[0]({sources:{mhb_w:'https://example.test/preview.mp4'}}); await new Promise(done=>setTimeout(done,0));
+        expect(current.controller.activePreview.card).toBe(current.document.querySelectorAll('.item')[1]);
+        expect(current.document.querySelectorAll('.item')[0].querySelector('.jhs-card-preview')).toBeNull();
+        current.scope.dispose(); pending[1]({sources:null});
+    });
+
+    it("refreshes only the failed cached source once after an actual playback error",async()=>{
+        current=createController({settings:{enablePreviewVideo:"yes"}}); vi.stubGlobal('clog',{debug:vi.fn(),warn:vi.fn(),error:vi.fn()});
+        vi.spyOn(window.HTMLMediaElement.prototype,'readyState','get').mockReturnValue(3);
+        vi.spyOn(window.HTMLMediaElement.prototype,'play').mockResolvedValue();
+        vi.spyOn(window.HTMLMediaElement.prototype,'pause').mockImplementation(()=>{});
+        vi.spyOn(window.HTMLMediaElement.prototype,'load').mockImplementation(()=>{});
+        let cache={'ABC-123':{mhb_w:'https://example.test/bad.mp4'},'KEEP-100':{mhb_w:'https://example.test/keep.mp4'}};
+        current.controller.storage={getLocal:key=>key==='jhs_dmm_video'?JSON.stringify(cache):null,setLocal:vi.fn((key,value)=>{if(key==='jhs_dmm_video')cache=JSON.parse(value);})};
+        current.controller.movie.preview=vi.fn(async()=>({sources:{mhb_w:'https://example.test/fresh.mp4'}})); await current.controller.start();
+        current.document.querySelector('.videoSvg').click(); await vi.waitFor(()=>expect(current.document.querySelector('video')).not.toBeNull());
+        await vi.waitFor(()=>expect(current.controller.activePreview.mediaReady).toBe(true));
+        const video=current.document.querySelector('video'); Object.defineProperty(video,'error',{value:{code:4}}); video.dispatchEvent(new Event('error'));
+        await vi.waitFor(()=>expect(current.document.querySelector('video')?.src).toBe('https://example.test/fresh.mp4'));
+        expect(cache['KEEP-100']).toEqual({mhb_w:'https://example.test/keep.mp4'}); expect(current.controller.movie.preview).toHaveBeenCalledOnce();
+        await vi.waitFor(()=>expect(current.controller.activePreview.mediaReady).toBe(true));
+        const refreshed=current.document.querySelector('video'); Object.defineProperty(refreshed,'error',{value:{code:4}}); refreshed.dispatchEvent(new Event('error'));
+        await vi.waitFor(()=>expect(current.ui.openPage).toHaveBeenCalledOnce()); expect(current.controller.movie.preview).toHaveBeenCalledOnce();
+    });
+    it("focuses the player on autoplay rejection without treating its source as broken",async()=>{
+        current=createController({settings:{enablePreviewVideo:"yes"}}); vi.stubGlobal('clog',{debug:vi.fn(),warn:vi.fn(),error:vi.fn()});
+        vi.spyOn(window.HTMLMediaElement.prototype,'readyState','get').mockReturnValue(3);
+        vi.spyOn(window.HTMLMediaElement.prototype,'play').mockRejectedValue(new DOMException('gesture required','NotAllowedError'));
+        vi.spyOn(window.HTMLMediaElement.prototype,'pause').mockImplementation(()=>{}); vi.spyOn(window.HTMLMediaElement.prototype,'load').mockImplementation(()=>{});
+        const setLocal=vi.fn(); current.controller.storage={getLocal:()=>JSON.stringify({'ABC-123':{mhb_w:'https://example.test/valid.mp4'}}),setLocal};
+        await current.controller.start(); current.document.querySelector('.videoSvg').click();
+        await vi.waitFor(()=>expect(current.document.activeElement.tagName).toBe('VIDEO'));
+        expect(setLocal).not.toHaveBeenCalled(); expect(current.notifications.error).not.toHaveBeenCalled(); expect(current.ui.openPage).not.toHaveBeenCalled();
+        expect(current.controller.diagnostics.recordError).toHaveBeenCalledWith(expect.objectContaining({message:expect.stringContaining('NotAllowedError')}));
+    });
+
 });

@@ -36,8 +36,9 @@ export class TitleKeywordController {
             try {
                 this.ui.confirm(
                     { clientX: event.clientX, clientY: event.clientY + 80 },
-                    `是否屏蔽标题关键词 ${escapeHtml(selectedText)}?`,
+                    `屏蔽标题关键词「${escapeHtml(selectedText)}」？`,
                     () => { void this.addKeyword(selectedText, title); },
+                    { confirmText: "屏蔽" },
                 );
             } catch (error) {
                 this.report(error);

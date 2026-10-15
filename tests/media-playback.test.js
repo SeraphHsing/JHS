@@ -103,7 +103,7 @@ describe("preview playback contracts", () => {
         expect(bus).toContain("fetchDmmPreviewIfEnabled(carNum, this.storage, this.movie, requestScope, this.settings.snapshot())");
         expect(bus).toContain("this.requestScope = requestScope");
         expect(bus).toContain("requestScope.dispose()");
-        expect(cover).toContain("fetchDmmPreviewIfEnabled(n, this.storage, this.movie, scope, settings)");
+        expect(cover).toContain("fetchDmmPreviewIfEnabled(carNum,this.storage,this.movie,session.scope,this.settings.snapshot())");
         expect(cover).toContain("const settings = this.settings.snapshot()");
     });
     it("keeps native play calls inside safePlay only", () => {

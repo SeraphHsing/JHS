@@ -61,10 +61,10 @@ test.describe("JavDB list actions Feature lifecycle", () => {
 
     await page.locator(".jhs-commandbar__batch .jhs-commandbar__menu-toggle").click();
     await page.locator("#filterAllVideo").click();
-    await expect(page.locator(".layui-layer-btn0")).toBeVisible();
+    await expect(page.locator(".layui-layer-btn").getByText("屏蔽", { exact: true })).toBeVisible();
     const loadingAudit = await page.evaluate(() => window.__loadingAudit);
     expect(loadingAudit.count).toBe(0);
-    await page.locator(".layui-layer-btn0").click();
+    await page.locator(".layui-layer-btn").getByText("屏蔽", { exact: true }).click();
     await expect.poll(() => page.evaluate(async () => {
       const log = await window.stateService.getActivityLog();
       return log.entries.find((entry) => entry.type === "actor-page-block")?.commitState || null;
@@ -424,7 +424,7 @@ test.describe("JavDB list actions Feature lifecycle", () => {
       listActions: window.unsafeWindow.pluginManager.getPluginNames().includes("ListPageButtonPlugin"),
     }));
     expect(result).toEqual({
-      confirmations: ["是否屏蔽番号 ABC-123?"], names: 1, listCore: true, listActions: false,
+      confirmations: ["屏蔽「ABC-123」？"], names: 1, listCore: true, listActions: false,
     });
     await expect(page.locator(".movie-list > .item .jhs-status-tags .status-tag")).toHaveText(["已屏蔽"]);
   });

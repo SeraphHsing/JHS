@@ -75,13 +75,13 @@ describe("magnet source results and recovery", () => {
     it("reports disabled external sources without requesting native-only results", async () => {
         const native = vi.fn(async () => []), { open } = setup({ "native-test": native });
         const hub = await open({ initialEngineId: "all", requireExternal: true });
-        expect(hub.text()).toContain("外部磁力来源未启用"); expect(native).not.toHaveBeenCalled();
+        expect(hub.text()).toContain("第三方磁力来源未启用"); expect(native).not.toHaveBeenCalled();
     });
     it("shows disabled-source guidance even when a native-only all panel was already opened", async () => {
         const native = vi.fn(async () => []), { open } = setup({ "native-test": native });
         const hub = await open(); await settled(hub);
         hub.data("jhsOpenExternalMagnets")();
-        expect(hub.text()).toContain("外部磁力来源未启用"); expect(native).toHaveBeenCalledOnce();
+        expect(hub.text()).toContain("第三方磁力来源未启用"); expect(native).toHaveBeenCalledOnce();
     });
     it("does not duplicate a failed-source retry while it is pending", async () => {
         const wait = deferred(), search = vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementation(() => wait.promise);

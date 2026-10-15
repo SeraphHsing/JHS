@@ -30,10 +30,6 @@ function patchLayerRuntime(layerRuntime, utilsRuntime) {
         const result = originalClose.call(this, id);
         // 非 Esc 途径（X 按钮/shadeClick/close 调用）关闭时同步清理 Esc 栈，避免 Esc 被陈旧索引吞掉
         utilsRuntime?.releaseEscClose?.(id);
-        setTimeout(() => {
-            const shades = document.querySelectorAll(".layui-layer-shade").length;
-            document.documentElement.style.overflow = shades > 0 ? "hidden" : "";
-        }, 10);
         return result;
     };
     const originalOpen = layerRuntime.open;
@@ -147,7 +143,7 @@ export async function bootstrapJhs() {
         });
         markPhase("context");
         injectCoreCss(context.services.styles);
-        if (route === "detail" || route === "owned-detail") {
+        if (route === "list" || route === "detail" || route === "owned-detail") {
             const { buildDetailPanelCss } = await import("../ui/detail/panel-styles.js");
             context.rootScope.addCleanup(context.services.styles.register("jhs-detail-panels", buildDetailPanelCss()));
         }
@@ -192,7 +188,7 @@ export async function bootstrapJhs() {
         // A missing logger dependency should fail the whole bootstrap, not leave a half-started page.
         attachCompatibilityFacade({
             pluginManager: compatibilityBeans, utils, gmHttp, storageManager, stateService, jhsEventBus,
-            clog: logger.clog, show: logger.show, loading: logger.loading,
+            clog: logger.clog, show: logger.show, loading: logger.loading, showImageViewer: logger.showImageViewer,
         }, globalThis.unsafeWindow);
         window.isDetailPage = route === "detail";
         window.isListPage = route === "list";

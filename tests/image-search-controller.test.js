@@ -103,14 +103,14 @@ describe("ImageSearchController", () => {
         input.value = "javascript:alert(1)";
         input.dispatchEvent(new Event("change", { bubbles: true }));
         expect(document.querySelector('[data-role="preview"]').hidden).toBe(true);
-        expect(loaded.notifications.info).toHaveBeenCalledWith("请输入有效的 HTTP/HTTPS 图片 URL");
+        expect(loaded.notifications.info).toHaveBeenCalledWith("请输入有效的图片链接");
         expect(loaded.resolve).not.toHaveBeenCalled();
 
         const file = new File(["synthetic image"], "poster.png", { type: "image/png" });
         loaded.controller.handleImageFile(file);
         await vi.waitFor(() => expect(loaded.resolve).toHaveBeenCalledOnce());
         expect(loaded.resolve.mock.calls[0][0]).toMatch(/^data:image\/png;base64,/);
-        expect(loaded.notifications.info).toHaveBeenCalledWith("开始上传图片...");
+        expect(loaded.notifications.info).toHaveBeenCalledWith("正在上传图片…");
         loaded.controller.close();
         expect(loaded.dialog.active).toBeNull();
     });

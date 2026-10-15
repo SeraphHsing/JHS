@@ -5,6 +5,87 @@ import { HttpService } from "../src/services/http-service.js";
 import { UserscriptHttpAdapter } from "../src/platform/userscript/userscript-http-adapter.js";
 import { WebDavService } from "../src/services/webdav-service.js";
 
+function downloadFixture(responses) {
+    const request = vi.fn(options => {
+        const response = responses[request.mock.calls.length - 1];
+        options.onload({ status: 200, responseText: "portable-backup", finalUrl: options.url, ...response });
+        return { abort: vi.fn() };
+    });
+    const policy = new ExternalUrlPolicy({ localOrigins: ["https://dav.example.test"] });
+    const http = new HttpService(new UserscriptHttpAdapter(request), policy);
+    const client = new WebDavService(http).createClient({ url: "https://dav.example.test/dav", username: "user", password: "pass" });
+    client.folderName = "JHS";
+    return { request, client };
+}
+
+it("returns a direct backup download as a string using manual redirects", async () => {
+    const { client, request } = downloadFixture([{}]);
+    await expect(client.getFileContent("backup.json")).resolves.toBe("portable-backup");
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({ redirect: "manual", timeout: 10_000, headers: { Authorization: `Basic ${btoa("user:pass")}`, Depth: "1", Accept: "application/octet-stream" } }));
+});
+
+it.each([301, 302, 303, 307, 308])("follows a relative same-origin %i download redirect with existing authentication", async status => {
+    const { client, request } = downloadFixture([{ status, responseHeaders: "lOcAtIoN: ../download.json\r\n" }, {}]);
+    await expect(client.getFileContent("backup.json")).resolves.toBe("portable-backup");
+    expect(request.mock.calls[1][0]).toMatchObject({ url: "https://dav.example.test/dav/download.json", method: "GET", headers: { Authorization: `Basic ${btoa("user:pass")}`, Depth: "1" } });
+});
+
+it("isolates every public CDN hop and never restores credentials on returning to the origin", async () => {
+    const { client, request } = downloadFixture([
+        { status: 301, responseHeaders: "Location: https://cdn.example.test/one?signature=fixture" },
+        { status: 307, responseHeaders: "Location: https://other.example.test/two" },
+        { status: 302, responseHeaders: "Location: https://dav.example.test/dav/returned.json" }, {},
+    ]);
+    await expect(client.getFileContent("backup.json")).resolves.toBe("portable-backup");
+    expect(request).toHaveBeenCalledTimes(4);
+    for (const [options] of request.mock.calls.slice(1)) {
+        expect(options).toMatchObject({ method: "GET", anonymous: true, redirect: "manual", headers: { Accept: "application/octet-stream" } });
+        expect(Object.keys(options.headers)).toEqual(["Accept"]);
+        expect(options).not.toHaveProperty("cookie");
+        expect(options).not.toHaveProperty("user");
+        expect(options).not.toHaveProperty("password");
+    }
+});
+
+it.each(["http://cdn.example.test/file", "https://127.0.0.1/file", "https://192.168.1.1/file", "https://[::1]/file", "https://localhost/file", "https://user:pass@cdn.example.test/file", "https://user@dav.example.test/file", "file:///backup", "https://["])("rejects unsafe download target %s before sending a second request", async location => {
+    const { client, request } = downloadFixture([{ status: 301, responseHeaders: `Location: ${location}` }]);
+    await expect(client.getFileContent("backup.json")).rejects.toMatchObject({ code: "INVALID_URL" });
+    expect(request).toHaveBeenCalledOnce();
+});
+
+it.each([{ status: 301 }, { status: 0 }, { status: 304 }])("rejects an unreadable redirect or invalid status $status", async response => {
+    const { client, request } = downloadFixture([response]);
+    await expect(client.getFileContent("backup.json")).rejects.toThrow();
+    expect(request).toHaveBeenCalledOnce();
+});
+
+it("rejects redirect loops without requesting the repeated URL", async () => {
+    const { client, request } = downloadFixture([{ status: 301, responseHeaders: "Location: backup.json#ignored" }]);
+    await expect(client.getFileContent("backup.json")).rejects.toThrow("循环");
+    expect(request).toHaveBeenCalledOnce();
+});
+
+it("allows five redirects and refuses a sixth", async () => {
+    const redirects = Array.from({ length: 6 }, (_, index) => ({ status: 301, responseHeaders: `Location: https://cdn.example.test/hop-${index}` }));
+    const allowed = downloadFixture([...redirects.slice(0, 5), {}]);
+    await expect(allowed.client.getFileContent("backup.json")).resolves.toBe("portable-backup");
+    const blocked = downloadFixture(redirects);
+    await expect(blocked.client.getFileContent("backup.json")).rejects.toThrow("超过限制");
+    expect(blocked.request).toHaveBeenCalledTimes(6);
+});
+
+it("keeps final-origin checks when the transport ignores manual redirects", async () => {
+    const { client, request } = downloadFixture([{ finalUrl: "https://cdn.example.test/file" }]);
+    await expect(client.getFileContent("backup.json")).rejects.toMatchObject({ code: "INVALID_URL" });
+    expect(request).toHaveBeenCalledOnce();
+});
+
+it.each(["MKCOL", "PROPFIND", "PUT", "DELETE"])("continues rejecting a cross-origin final URL for %s", async method => {
+    const { client, request } = downloadFixture([{ finalUrl: "https://cdn.example.test/file" }]);
+    await expect(client.request(method, "JHS/file")).rejects.toMatchObject({ code: "INVALID_URL" });
+    expect(request.mock.calls[0][0].redirect).toBeUndefined();
+});
+
 it("routes WebDAV requests through HttpService with an exact user-local origin", async () => {
     const request = vi.fn(async () => ({ data: "" }));
     const client = new WebDavService({ request }).createClient({ url: "http://192.168.1.10:5244/dav", username: "user", password: "pass" });

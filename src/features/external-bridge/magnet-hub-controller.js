@@ -23,7 +23,7 @@ export const MAGNET_HUB_STYLES = `
     .magnet-results { min-height:200px; }
     .magnet-result { position:relative; padding:var(--jhs-space-3); border-bottom:1px solid var(--jhs-border); }
     .magnet-result:hover { background:var(--jhs-surface-hover); }
-    .magnet-title { overflow:hidden; margin-bottom:var(--jhs-space-1); padding-right:80px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+    .magnet-title { overflow:hidden; margin-bottom:var(--jhs-space-1); padding-right:80px; font-weight:var(--jhs-font-weight-semibold); text-overflow:ellipsis; white-space:nowrap; }
     .magnet-info { display:flex; justify-content:space-between; margin-bottom:var(--jhs-space-1); color:var(--jhs-text-muted); font-size:var(--jhs-font-size-xs); }
     .magnet-loading { padding:var(--jhs-space-4); text-align:center; }
     .magnet-error { padding:var(--jhs-space-2); color:var(--jhs-danger); }
@@ -148,7 +148,7 @@ export class MagnetHubController {
         if (options.requireExternal && !sources.some((source => !source.id.startsWith("native-")))) {
             state.pending = false;
             state.outcomes = [];
-            panel.empty().append(this.jquery('<div class="magnet-query-status" role="status"></div>').text("外部磁力来源未启用，请在设置 → 资源来源 → 磁力来源中启用"));
+            panel.empty().append(this.jquery('<div class="magnet-query-status" role="status"></div>').text("第三方磁力来源未启用，请前往资源来源设置"));
             return;
         }
         const retrySources = previous.filter((outcome => outcome.status === "error")).map((outcome => outcome.source));
@@ -157,7 +157,7 @@ export class MagnetHubController {
         panel.find('[data-jhs-action="retry-magnets"]').prop("disabled", true);
         if (!options.retryFailed) panel.empty();
         panel.find(".magnet-loading").remove();
-        panel.prepend(this.jquery('<div class="magnet-loading" role="status"></div>').text(`正在从 ${engine.name} 搜索 "${keyword}"…`));
+        panel.prepend(this.jquery('<div class="magnet-loading" role="status"></div>').text(`正在从 ${engine.name} 搜索「${keyword}」…`));
         try {
             const queried = await this.querySources(selected, keyword, root);
             if (!canCommit()) return;

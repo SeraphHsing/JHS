@@ -19,6 +19,32 @@ function fixture(settings, enabled = true) {
 }
 
 describe("scan interval tooltips", () => {
+    it("updates only the current workspace for an instance-owned refresh", async () => {
+        const service = fixture({});
+        const root = jquery('<div><button id="checkFavoriteActress"></button><button id="checkNewVideo"></button></div>').appendTo("body");
+        service.nvWorkspaceRoot = root;
+        await service.resetBtnTip({ root, generation: service.nvDialogGeneration });
+        expect(root.find("#checkFavoriteActress").attr("data-tip")).toContain("24小时");
+        expect(jquery("body > #checkFavoriteActress").attr("data-tip")).toBeUndefined();
+    });
+
+    it.each(["reopen", "dispose"])("drops an instance-owned tooltip result after %s", async action => {
+        const service = fixture({});
+        const root = jquery('<div><button id="checkFavoriteActress"></button><button id="checkNewVideo"></button></div>').appendTo("body");
+        service.nvWorkspaceRoot = root;
+        let finish;
+        service.getTaskButtonTips = vi.fn(() => new Promise(resolve => finish = resolve));
+        const loading = service.resetBtnTip({ root, generation: service.nvDialogGeneration });
+        if (action === "reopen") {
+            service.nvWorkspaceRoot = jquery('<div><button id="checkFavoriteActress" data-tip="新实例"></button></div>').appendTo("body");
+            service.nvDialogGeneration++;
+        } else service.dispose();
+        finish({ favorite: "旧请求", newVideo: "旧请求" });
+        await loading;
+        expect(root.find("#checkFavoriteActress").attr("data-tip")).toBeUndefined();
+        if (action === "reopen") expect(service.nvWorkspaceRoot.find("#checkFavoriteActress").attr("data-tip")).toBe("新实例");
+    });
+
     it.each([
         [{}, 24, 12],
         [{ checkFavoriteActress_IntervalTime: "bad", checkNewVideo_intervalTime: "0" }, 24, 12],
@@ -35,7 +61,7 @@ describe("scan interval tooltips", () => {
     it("labels disabled tasks without an undefined interval", async () => {
         const service = fixture({}, false);
         await service.resetBtnTip();
-        expect(jquery("#checkFavoriteActress").attr("data-tip")).toBe("后台任务功能已禁用");
-        expect(jquery("#checkNewVideo").attr("data-tip")).toBe("后台任务功能已禁用");
+        expect(jquery("#checkFavoriteActress").attr("data-tip")).toBe("后台任务已关闭");
+        expect(jquery("#checkNewVideo").attr("data-tip")).toBe("后台任务已关闭");
     });
 });

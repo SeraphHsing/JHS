@@ -3,6 +3,7 @@ import jqueryFactory from "jquery";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LifecycleScope } from "../src/core/lifecycle-scope.js";
 import { ListActionsController } from "../src/features/list/list-actions-controller.js";
+import { ListSortController } from "../src/features/list/list-sort-controller.js";
 
 function createHarness({
     url = "https://javdb.com/",
@@ -33,6 +34,21 @@ function createHarness({
         blacklist, newVideo, openNewVideo, diagnostics, document: dom.window.document, window: dom.window,
     });
     return { dom, $, scope, settings, notifications, diagnostics, controller };
+}
+
+function createDeferredSortHarness() {
+    const harness = createHarness(), writes = new Map();
+    harness.settings.set = vi.fn((name, method) => {
+        let resolve, reject;
+        const promise = new Promise((accept, fail) => { resolve = accept; reject = fail; });
+        writes.set(method, { resolve, reject });
+        return promise.then(() => { harness.settings.values[name] = method; });
+    });
+    harness.controller.sortController = new ListSortController({
+        hostAdapter: harness.controller.hostAdapter, settings: harness.settings,
+        document: harness.dom.window.document, location: harness.dom.window.location,
+    });
+    return { ...harness, writes };
 }
 
 describe("native list actions controller", () => {
@@ -113,6 +129,47 @@ describe("native list actions controller", () => {
         expect(harness.$('[data-sort-method="default"]').attr("aria-checked")).toBe("true");
         expect(harness.$("#jhs-sort-current").text()).toBe("默认");
         expect(harness.diagnostics.recordError).toHaveBeenCalledWith(expect.objectContaining({ contributionId: "list.actions" }));
+    });
+
+    it("keeps the latest choice when an older sort save fails before the latest save succeeds", async () => {
+        harness = createDeferredSortHarness();
+        await harness.controller.start();
+        harness.$('[data-sort-method="date"]').trigger("click");
+        harness.$('[data-sort-method="rateCount"]').trigger("click");
+
+        harness.writes.get("date").reject(new Error("older save failed"));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(harness.$("#jhs-sort-current").text()).toBe("评价人数");
+        expect(harness.$('[data-sort-method="rateCount"]').attr("aria-checked")).toBe("true");
+        expect(harness.notifications.error).not.toHaveBeenCalled();
+
+        harness.writes.get("rateCount").resolve();
+        await vi.waitFor(() => expect(harness.settings.snapshot().sortMethod).toBe("rateCount"));
+        expect(harness.$("#jhs-sort-current").text()).toBe("评价人数");
+        expect(harness.$('[aria-checked="true"]').data("sort-method")).toBe("rateCount");
+    });
+
+    it.each([
+        { earlierSaveSucceeds: false, savedMethod: "default", savedLabel: "默认" },
+        { earlierSaveSucceeds: true, savedMethod: "date", savedLabel: "时间" },
+    ])("restores saved $savedMethod after the latest save fails, without restoring an optimistic choice", async ({ earlierSaveSucceeds, savedMethod, savedLabel }) => {
+        harness = createDeferredSortHarness();
+        await harness.controller.start();
+        harness.$('[data-sort-method="date"]').trigger("click");
+        harness.$('[data-sort-method="rateCount"]').trigger("click");
+        const firstWrite = harness.writes.get("date");
+        if (earlierSaveSucceeds) firstWrite.resolve();
+        else firstWrite.reject(new Error("older save failed"));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(harness.$("#jhs-sort-current").text()).toBe("评价人数");
+        expect(harness.notifications.error).not.toHaveBeenCalled();
+
+        harness.writes.get("rateCount").reject(new Error("latest save failed"));
+        await vi.waitFor(() => expect(harness.notifications.error).toHaveBeenCalledOnce());
+        expect(harness.settings.snapshot().sortMethod).toBe(savedMethod);
+        expect(harness.$("#jhs-sort-current").text()).toBe(savedLabel);
+        expect(harness.$('[aria-checked="true"]').data("sort-method")).toBe(savedMethod);
+        expect(harness.diagnostics.recordError).toHaveBeenCalledOnce();
     });
 
     it("reflects an existing actor blacklist record", async () => {

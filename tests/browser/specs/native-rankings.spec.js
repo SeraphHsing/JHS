@@ -123,7 +123,7 @@ test.describe("JavDB native rankings", () => {
     await page.locator("#favoriteAllVideo").click();
     const dialog = page.locator(".layui-layer").filter({ hasText: "当前字幕筛选只影响显示，不限制批量处理范围" });
     await expect(dialog).toBeVisible();
-    await dialog.locator(".layui-layer-btn1").click();
+    await dialog.locator(".layui-layer-btn").getByText("取消", { exact: true }).click();
     await expect(dialog).toHaveCount(0);
   });
 
@@ -152,7 +152,7 @@ test.describe("JavDB native rankings", () => {
     await page.goto("https://javdb.com/tags/fc2?c10=1&jhs_source=123av", { waitUntil: "domcontentloaded" });
     await injectUserscriptRuntime(page);
     await expect(page.locator(".jhs-123av-list")).toHaveCount(1);
-    await expect(page.locator("h2.section-title")).toContainText("123AV · FC2片库");
+    await expect(page.locator("h2.section-title")).toContainText("123AV · FC2 片库");
     await expect(page.locator("#search-123av-keyword")).toBeVisible();
     await expect(page.locator(".movie-list")).toHaveCount(1);
   });

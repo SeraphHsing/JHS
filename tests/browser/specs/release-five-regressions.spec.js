@@ -1,16 +1,15 @@
 import { test, expect } from "@playwright/test";
-import { fileURLToPath } from "node:url";
 import { fulfillHostFixtures, injectUserscriptRuntime } from "../harness/runtime.js";
+import { injectRealLayer } from "../harness/real-layer.js";
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop-wide", "cross-tab and fault probes have one deterministic owner"));
-async function boot(page, settings = {}, url = "https://javdb.com/v/test-id?jhsCarNum=ABC-123") {
+async function boot(page, settings = {}, url = "https://javdb.com/v/test-id?jhsCarNum=ABC-123", options = {}) {
     await page.goto(url);
-    await injectUserscriptRuntime(page, {settingOverrides:{enableLoadReview:"no",enableLoadRelated:"no",enableLoadPreviewVideo:"no",...settings}});
+    await injectUserscriptRuntime(page, {...options,settingOverrides:{enableLoadReview:"no",enableLoadRelated:"no",enableLoadPreviewVideo:"no",...settings}});
     await page.waitForFunction(() => window.__jhsBrowserDiagnostics.bootstrapPhases["first-ready"]);
 }
 test("review keyword confirmation treats external text as text with the real Layer runtime", async ({page,context}) => {
-    await fulfillHostFixtures(context); await boot(page);
-    await page.addScriptTag({path:fileURLToPath(new URL("../fixtures/layer-runtime/layer-1.0.9.min.js", import.meta.url))});
+    await fulfillHostFixtures(context); await boot(page, {}, undefined, { beforeUserscriptInjection: injectRealLayer });
     const text = '<img src="data:," onerror="document.documentElement.dataset.auditExecuted=String(1)"> \' & <b>keyword</b>';
     await page.evaluate(text => { window.unsafeWindow.pluginManager.getBean("ReviewPlugin").getRuntimeService("review").list = async () => [{author:"Audit",content:text,createdAt:"2026-09-09"}]; }, text);
     await page.locator(".jhs-review-toggle").click();
@@ -21,24 +20,19 @@ test("review keyword confirmation treats external text as text with the real Lay
     await expect(dialog.locator("img,b")).toHaveCount(0);
     expect(await page.evaluate(()=>document.documentElement.dataset.auditExecuted)).toBeUndefined();
     await expect(dialog).toContainText(text);
-    await dialog.locator(".layui-layer-btn1").click();
+    await dialog.locator(".layui-layer-btn").getByText("取消", { exact: true }).click();
     await expect(dialog).toHaveCount(0);
     expect(await page.evaluate(async () => (await window.unsafeWindow.pluginManager.getBean("ReviewPlugin").getRuntimeService("storage").get("filter_keyword_review")) ?? [])).not.toContain(text);
-    await body.click({button:"right"});await page.locator(".layui-layer-dialog .layui-layer-btn0").click();
+    await body.click({button:"right"});await page.locator(".layui-layer-dialog .layui-layer-btn").getByText("屏蔽", { exact: true }).click();
     await expect.poll(()=>page.evaluate(()=>window.unsafeWindow.pluginManager.getBean("ReviewPlugin").getRuntimeService("storage").get("filter_keyword_review"))).toContain(text);
 });
 test("resource source and rule deletion confirmations render external names as text", async ({page,context}) => {
     await fulfillHostFixtures(context);
-    const addScript=page.addScriptTag.bind(page);
-    page.addScriptTag=async options=>{
-        if(options.path?.endsWith(".user.js")) await addScript({path:fileURLToPath(new URL("../fixtures/layer-runtime/layer-1.0.9.min.js", import.meta.url))});
-        return addScript(options);
-    };
-    await boot(page);
+    await boot(page, {}, undefined, { beforeUserscriptInjection: injectRealLayer });
     await page.evaluate(()=>window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
     const settings=page.locator(".layui-layer").filter({has:page.locator("#resource-sources-panel")});
     await expect(settings.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready","true");
-    await settings.locator('.side-menu-item[data-panel="resource-sources-panel"]').click();
+    await settings.locator('.side-menu-item[data-panel="resources-panel"]').click();
     const name='<img src="data:," onerror="document.documentElement.dataset.auditExecuted=String(1)"> & <b>fixture</b>';
     await page.evaluate(name=>{
         const plugin=window.unsafeWindow.pluginManager.getBean("SettingPlugin");
@@ -54,23 +48,18 @@ test("resource source and rule deletion confirmations render external names as t
         await expect(dialog.locator("img,b")).toHaveCount(0);
         expect(await page.evaluate(()=>document.documentElement.dataset.auditExecuted)).toBeUndefined();
         const dialogId=await dialog.getAttribute("id");
-        await dialog.locator(".layui-layer-btn1").click();
+        await dialog.locator(".layui-layer-btn a").filter({ hasText: /^取消$/ }).click();
         await expect(page.locator(`#${dialogId}`)).toHaveCount(0);
         await expect(settings.locator(`${list} ${button}`)).toHaveCount(1);
     }
 });
 test("setting keyword removal confirmation renders the saved text literally", async ({page,context}) => {
     await fulfillHostFixtures(context);
-    const addScript=page.addScriptTag.bind(page);
-    page.addScriptTag=async options=>{
-        if(options.path?.endsWith(".user.js")) await addScript({path:fileURLToPath(new URL("../fixtures/layer-runtime/layer-1.0.9.min.js", import.meta.url))});
-        return addScript(options);
-    };
-    await boot(page);
+    await boot(page, {}, undefined, { beforeUserscriptInjection: injectRealLayer });
     await page.evaluate(()=>window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
     const settings=page.locator(".layui-layer").filter({has:page.locator("#filter-panel")});
     await expect(settings.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready","true");
-    await settings.locator('.side-menu-item[data-panel="filter-panel"]').click();
+    await settings.locator('.side-menu-item[data-panel="filtering-panel"]').click();
     const keyword="<b>fixture</b>";
     await settings.locator("#reviewKeywordContainer .keyword-input").fill(keyword);
     await settings.locator("#reviewKeywordContainer .add-tag-btn").click();
@@ -82,7 +71,7 @@ test("setting keyword removal confirmation renders the saved text literally", as
     await expect(dialog).toContainText(keyword);
     await expect(dialog.locator("b")).toHaveCount(0);
     const dialogId=await dialog.getAttribute("id");
-    await dialog.locator(".layui-layer-btn1").click();
+    await dialog.locator(".layui-layer-btn a").filter({ hasText: /^取消$/ }).click();
     await expect(page.locator(`#${dialogId}`)).toHaveCount(0);
     await expect(label).toHaveCount(1);
 });
@@ -90,7 +79,7 @@ test("cloud OFF controls persist booleans and exclude both providers", async ({p
     await fulfillHostFixtures(context);await boot(page,{enable123Offline:true,enable115Offline:true});
     await page.evaluate(()=>window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
     await expect(page.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready","true");
-    await page.locator('.side-menu-item[data-panel="cloud-services-panel"]').click();
+    await page.locator('.side-menu-item[data-panel="cloud-panel"]').click();
     await page.locator("#enable123Offline").uncheck();await page.locator("#enable115Offline").uncheck();
     const result=await page.evaluate(async()=>{
         const plugin=window.unsafeWindow.pluginManager.getBean("UnifiedOfflinePlugin"),settings=plugin.getRuntimeService("settings");await settings.waitForIdle();
@@ -102,7 +91,7 @@ test("cloud OFF controls persist booleans and exclude both providers", async ({p
     await expect(page.locator("#enable123Offline")).toHaveCount(0);
     await page.evaluate(()=>window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
     await expect(page.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready","true");
-    await page.locator('.side-menu-item[data-panel="cloud-services-panel"]').click();
+    await page.locator('.side-menu-item[data-panel="cloud-panel"]').click();
     await expect(page.locator("#enable123Offline")).not.toBeChecked();
     await expect(page.locator("#enable115Offline")).not.toBeChecked();
 });
@@ -144,7 +133,7 @@ test("115 matching cancels late detail results and restarts once", async ({page,
     await page.evaluate(()=>window.matchSettings.set("enable115Match",true));
     await expect.poll(()=>page.evaluate(()=>window.matchRequests.length)).toBe(2);
     await page.evaluate(()=>window.matchRequests[1].resolve([]));
-    await expect(page.locator(".jhs-115-match")).toHaveText("115匹配：未匹配 重试");
+    await expect(page.locator(".jhs-115-match")).toHaveText("115 匹配：未匹配 重试");
 });
 
 for(const count of [0,1,2]) test(`115 ${count} matches isolate their card action`, async ({page,context})=>{

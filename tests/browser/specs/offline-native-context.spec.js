@@ -80,7 +80,10 @@ test("115 authentication failure offers a safe login link only while enabled", a
     await expect(login).toHaveAttribute("href", "https://115.com");
     await expect(login).toHaveAttribute("rel", "noopener noreferrer");
     await expect(login).toHaveText("登录 115");
-    await expect(login).toHaveAttribute("title", "https://115.com");
+    await login.focus();
+    await expect(login).toHaveAttribute("data-tip", "https://115.com");
+    await expect(login).not.toHaveAttribute("title");
+    await expect(page.getByRole("tooltip")).toHaveText("https://115.com");
     await page.evaluate(() => window.settingsService.set("enable115LoginRedirect", false));
     await expect(login).toHaveCount(0);
 });

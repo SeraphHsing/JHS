@@ -6,5 +6,6 @@ export function attachCompatibilityFacade(values, target) {
         if (values[name] == null) throw new Error(`Compatibility facade is missing ${name}`);
         target[name] = values[name];
     }
+    if (values.showImageViewer) target.showImageViewer = values.showImageViewer;
     return Object.freeze(Object.fromEntries(Object.keys(values).map((name) => [name, target[name]])));
 }

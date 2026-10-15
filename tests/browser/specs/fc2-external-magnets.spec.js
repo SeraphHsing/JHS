@@ -50,7 +50,7 @@ for (const mode of ["page", "dialog"]) {
   test(`FC2 ${mode} shortcut is lazy, queries all enabled sources and preserves preference`, async ({ page, context }, info) => {
     const root = await boot(page, context, { mode });
     expect(await page.evaluate(() => window.__magnetProbe.requests)).toEqual([]);
-    const shortcut = root.getByRole("button", { name: "搜索外部磁力", exact: true });
+    const shortcut = root.getByRole("button", { name: "搜索第三方磁力", exact: true });
     await shortcut.focus(); await shortcut.press("Enter");
     await expect(root.locator(".magnet-result")).toHaveCount(2);
     await expect(root.locator('.magnet-tab[aria-selected="true"]')).toHaveText("全部");
@@ -74,25 +74,25 @@ test("FC2 missing JavDB association still offers external search", async ({ page
     const owned = window.jQuery(".jhs-fc2-workspace").data("jhsFc2Context");
     await window.unsafeWindow.pluginManager.getBean("Fc2Plugin").fetchAndRenderNativeMagnets(owned, null);
   });
-  await expect(root.locator('[data-jhs-role="native-magnets"]')).toContainText("JavDB 暂无对应作品");
-  await root.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
+  await expect(root.locator('[data-jhs-role="native-magnets"]')).toContainText("JavDB 暂无对应影片");
+  await root.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
   await expect(root.locator(".magnet-result")).toHaveCount(2);
 });
 
 test("FC2 disabled Feature and disabled sources show settings guidance without requests", async ({ page, context }) => {
   const disabled = await boot(page, context, { disabled: true });
-  await expect(disabled.getByRole("button", { name: "搜索外部磁力", exact: true })).toHaveCount(0);
-  await expect(disabled).toContainText("外部磁力搜索未启用");
+  await expect(disabled.getByRole("button", { name: "搜索第三方磁力", exact: true })).toHaveCount(0);
+  await expect(disabled).toContainText("第三方磁力搜索已关闭，请在设置中开启");
   const root = await boot(page, context, { sourcesDisabled: true });
-  await root.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
-  await expect(root).toContainText("外部磁力来源未启用");
+  await root.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
+  await expect(root).toContainText("第三方磁力来源未启用");
   expect(await page.evaluate(() => window.__magnetProbe.requests)).toEqual([]);
 });
 
 test("FC2 aggregate keeps results and retries only the failed source", async ({ page, context }) => {
   const root = await boot(page, context);
   await page.evaluate(() => window.__magnetProbe.fail.sukebei = 1);
-  await root.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
+  await root.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
   await expect(root.locator(".magnet-result")).toHaveCount(1);
   await expect(root).toContainText("查询失败：Sukebei");
   await root.getByRole("button", { name: "重试失败来源", exact: true }).click();
@@ -103,7 +103,7 @@ test("FC2 aggregate keeps results and retries only the failed source", async ({ 
 test("FC2 rapid source switching ignores old aggregate results", async ({ page, context }) => {
   const root = await boot(page, context);
   await page.evaluate(() => window.__magnetProbe.pending = true);
-  await root.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
+  await root.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
   await expect(root.locator(".magnet-loading")).toBeVisible();
   await page.evaluate(() => window.__magnetProbe.pending = false);
   await root.locator('[data-engine="u9a9"]').click();
@@ -117,7 +117,7 @@ test("FC2 rapid source switching ignores old aggregate results", async ({ page, 
 test("FC2 closed dialog ignores late results and another dialog remains independent", async ({ page, context }) => {
   const first = await boot(page, context, { mode: "dialog" });
   await page.evaluate(() => window.__magnetProbe.pending = true);
-  await first.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
+  await first.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
   await page.evaluate(() => {
     const workspace = window.jQuery('.jhs-fc2-workspace[data-jhs-fc2-mode="dialog"]').last();
     window.__closedMagnetHub = workspace.find(".magnet-container")[0];
@@ -127,7 +127,7 @@ test("FC2 closed dialog ignores late results and another dialog remains independ
     window.unsafeWindow.pluginManager.getBean("Fc2Plugin").openFc2Dialog("fixture-id", "FC2-7654321", "https://javdb.com/v/fixture-id", { source: "fc2" });
   });
   const second = page.locator('.jhs-fc2-workspace[data-jhs-fc2-mode="dialog"]').last();
-  await second.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
+  await second.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
   await expect(second.locator(".magnet-result")).toHaveCount(2);
   await page.evaluate(() => window.__magnetProbe.releases.splice(0).forEach(resolve => resolve()));
   await expect.poll(() => page.evaluate(() => window.__magnetProbe.completed)).toBe(4);

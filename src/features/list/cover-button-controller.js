@@ -1,4 +1,9 @@
 // @ts-check
+import { OwnedPopover } from "../../core/owned-popover.js";
+import { MediaPreviewSession } from "../../core/media-preview-session.js";
+import { invalidateDmmPreview, isDmmEnabled } from "../../services/preview-service.js";
+
+import { PRODUCT_NAMES } from "../../core/product-names.js";
 
 import { _, d, g, h, k, m, p, v, y, escapeHtml } from "../../core/constants.js";
 import { safePlay } from "../../core/feature-helpers.js";
@@ -30,6 +35,8 @@ export class CoverButtonController {
         this.isJavBus = options.isJavBus;
         /** @type {typeof FEATURE_ICONS} */ this.icons = FEATURE_ICONS;
         /** @type {number} */ this.previewGeneration = 0;
+        /** @type {any} */ this.activePreview = null;
+        /** @type {OwnedPopover | null} */ this.activeCardPopover = null;
         this.started = false;
     }
     getStyles() {
@@ -37,12 +44,10 @@ export class CoverButtonController {
             <style>
                 .box .tags { justify-content:space-between; }
                 .jhs-cover-tools { display:flex; flex-wrap:wrap; max-width:100%; align-items:center; justify-content:flex-end; gap:var(--jhs-space-2); margin-left:auto; }
-                .jhs-cover-tools svg path { fill:var(--jhs-icon-color); }
                 .jhs-cover-tools .screenSvg, .jhs-cover-tools .videoSvg { opacity:.65; }
                 .jhs-cover-tools .screenSvg:hover, .jhs-cover-tools .videoSvg:hover { opacity:1; }
                 ${this.isJavBus ? ".jhs-cover-tools .icon, .setting-label .icon{height:24px;width:24px}" : ""}
                 .more-tools-container { position:relative; }
-                .jhs-card-menu { top:auto; right:0; bottom:calc(100% + var(--jhs-space-2)); width:152px; }
                 .jhs-card-menu .jhs-btn, .jhs-card-menu .site-btn { width:100%; min-height:var(--jhs-control-height); justify-content:flex-start; margin:0; }
                 .jhs-card-menu__dot { width:8px; height:8px; flex:none; border-radius:50%; background:var(--jhs-border-strong); }
                 .jhs-card-menu__dot--watch { background:var(--jhs-status-watch); }
@@ -50,8 +55,8 @@ export class CoverButtonController {
                 .jhs-card-menu__dot--fav { background:var(--jhs-status-fav); }
                 .jhs-card-menu__dot--filter { background:var(--jhs-status-filter); }
                 .loading { opacity:.7; filter:blur(1px); }
-                .loading-spinner { position:absolute; top:50%; left:50%; width:40px; height:40px; border:3px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; transform:translate(-50%,-50%); animation:spin 1s ease-in-out infinite; z-index:var(--jhs-z-elevated); }
-                @keyframes spin { to { transform:translate(-50%,-50%) rotate(360deg); } }
+                .loading-spinner { position:absolute; top:50%; left:50%; width:64px; height:12px; transform:translate(-50%,-50%); z-index:var(--jhs-z-elevated); }
+                .loading-spinner .loading-animation { display:block; }
             </style>`;
     }
     async start() {
@@ -103,10 +108,10 @@ export class CoverButtonController {
                 <div class="more-tools-container siteSvg">
                     <button type="button" title="第三方网站" aria-label="第三方网站" aria-haspopup="menu" aria-expanded="false" class="jhs-btn jhs-icon-btn jhs-card-menu-trigger">${this.icons.siteSvg}</button>
                     <div class="jhs-popover jhs-card-menu" role="menu">
-                        <a role="menuitem" class="site-btn site-jable"><span>Jable</span></a>
-                        <a role="menuitem" class="site-btn site-avgle"><span>Avgle</span></a>
-                        <a role="menuitem" class="site-btn site-miss-av"><span>MissAv</span></a>
-                        <a role="menuitem" class="site-btn site-123-av"><span>123Av</span></a>
+                        <a role="menuitem" class="site-btn site-jable"><span>${PRODUCT_NAMES.jable}</span></a>
+                        <a role="menuitem" class="site-btn site-avgle"><span>${PRODUCT_NAMES.avgle}</span></a>
+                        <a role="menuitem" class="site-btn site-miss-av"><span>${PRODUCT_NAMES.missav}</span></a>
+                        <a role="menuitem" class="site-btn site-123-av"><span>${PRODUCT_NAMES.av123}</span></a>
                     </div>
                 </div>
                 <div class="more-tools-container copySvg">
@@ -136,15 +141,19 @@ export class CoverButtonController {
         const e = this.settings.snapshot(), {enableScreenSvg: t = _, enableVideoSvg: n = _, enablePreviewVideo: q = _, enableHandleSvg: a = _, enableSiteSvg: i = _, enableCopySvg: s = _} = e;
         const scope = items ? $(items) : $(this.document);
         const screenshotAvailable = this.screenshotAvailable === true;
-        // videoSvg 是 DMM-only 入口：Preview 总开关与 DMM 子开关都必须 ON，否则不显示（不留死按钮）。
+        // 卡片入口跟随预览总开关，DMM 关闭时转到详情原生预览。
         [ { selector: ".screenSvg", enabled: t === _ && screenshotAvailable ? _ : "no" }, { selector: ".videoSvg", enabled: n === _ && canUseCardPreview(e) ? _ : "no" }, { selector: ".handleSvg", enabled: a }, { selector: ".siteSvg", enabled: i }, { selector: ".copySvg", enabled: s } ].forEach((({selector: e, enabled: t}) => {
             scope.find(e).toggle(t === _);
         }));
     }
+    /** @param {JQueryHandle} button */
+    cardForButton(button) {
+        const direct = button.closest(".item");
+        return direct.length ? direct : this.ui.jquery(button.closest(".jhs-card-menu").data("jhsCardOwner"));
+    }
     closeCardMenus(focus = !1) {
         const $ = this.ui.jquery;
-        const openMenus = $(".jhs-card-menu.is-open"), triggers = openMenus.siblings(".jhs-card-menu-trigger");
-        openMenus.removeClass("is-open"), triggers.attr("aria-expanded", "false"), focus && triggers.first().trigger("focus");
+        this.activeCardPopover?.close(focus); this.activeCardPopover=null;
     }
     /** @param {import("../../core/lifecycle-scope.js").LifecycleScope} scope */
     async bindClick(scope) {
@@ -157,7 +166,11 @@ export class CoverButtonController {
         documentRoot.on("click.jhsCoverButton", ".jhs-card-menu-trigger", ((/** @type {CardActionEvent} */ event) => {
             event.preventDefault(), event.stopPropagation();
             const trigger = $(event.currentTarget), menu = trigger.siblings(".jhs-card-menu"), open = !menu.hasClass("is-open");
-            this.closeCardMenus(), menu.toggleClass("is-open", open), trigger.attr("aria-expanded", String(open)), open && menu.children().first().trigger("focus");
+            this.closeCardMenus();
+            if (open) {
+                menu.data("jhsCardOwner",trigger.closest(".item")[0]);
+                this.activeCardPopover = new OwnedPopover(trigger[0],menu[0]); this.activeCardPopover.open();
+            }
         })).on("keydown.jhsCoverButton", ".jhs-card-menu [role='menuitem']", ((/** @type {KeyboardEvent} */ event) => {
             const menu = $(event.currentTarget).closest(".jhs-card-menu"), items = menu.find("[role='menuitem']"), index = items.index(event.currentTarget);
             if ("Escape" === event.key) return event.preventDefault(), this.closeCardMenus(!0);
@@ -166,24 +179,21 @@ export class CoverButtonController {
             const next = "Home" === event.key ? 0 : "End" === event.key ? items.length - 1 : "ArrowDown" === event.key ? (index + 1) % items.length : (index - 1 + items.length) % items.length;
             items.eq(next).trigger("focus");
         })).on("click.jhsCoverButton", ((/** @type {CardActionEvent} */ event) => {
-            $(event.target).closest(".more-tools-container").length || this.closeCardMenus();
+            $(event.target).closest(".more-tools-container,.jhs-owned-popover").length || this.closeCardMenus();
         }));
         documentRoot.on("click.jhsCoverButton", ".videoSvg", ((/** @type {CardActionEvent} */ event) => {
             event.preventDefault();
-            $('.videoSvg[title!="播放视频"]').each(((/** @type {number} */ _index, /** @type {HTMLElement} */ element) => {
-                const button = $(element), card = button.closest(".item"), image = card.find("img");
-                const { carNum } = list.findCarNumAndHref(card);
-                this.showImg(button, image, carNum);
-            }));
-            const card = $(event.target).closest(".item"), button = card.find(".videoSvg");
-            if (button.attr("title") !== "播放视频") return;
-            button.html(this.icons.recoveryVideoSvg).attr({ title: "切回封面", "aria-label": "切回封面" });
-            const { carNum } = list.findCarNumAndHref(card), image = card.find("img");
-            if (!image.length) { this.notifications.error("没有找到图片"); return; }
-            void this.showVideo(button, image, carNum).catch((error) => this.recordError("卡片预览视频打开失败", error));
+            const card = $(event.currentTarget).closest(".item"), button = card.find(".videoSvg"), image = card.find("img").first();
+            const {carNum} = list.findCarNumAndHref(card);
+            if (this.activePreview?.card === card[0]) return void this.showImg(button, image, carNum);
+            this.stopAllPreviews();
+            button.html(this.icons.recoveryVideoSvg).attr({title:"切回封面", "aria-label":"切回封面"});
+            if (!image.length) return void this.notifications.error("没有找到封面");
+            void this.showVideo(button, image, carNum).catch(error => this.recordError("卡片预览视频打开失败", error));
         }));
         documentRoot.on("click.jhsCoverButton", ".screenSvg", (async (/** @type {CardActionEvent} */ event) => {
             event.preventDefault();
+            const trigger = event.currentTarget;
             const loading = this.ui.loading();
             try {
                 const card = $(event.currentTarget).closest(".item");
@@ -192,19 +202,17 @@ export class CoverButtonController {
                 if (scope.disposed) return;
                 const image = Array.isArray(result) ? result[0] : result;
                 if (image?.url) {
-                    const preview = this.document.createElement("img");
-                    preview.src = image.url;
-                    this.ui.openImageViewer(preview);
-                }
+                    this.ui.openImageViewer(image.url, {imageKind:"contact-sheet", owner:card[0], trigger, scope});
+                } else this.notifications.info("暂无长缩略图");
             } catch (error) {
                 this.recordError("图片预览出错", error);
-                this.notifications.error(`图片预览出错:${error instanceof Error ? error.message : String(error)}`);
+                this.notifications.error("图片预览失败，请重试");
             } finally { loading.close?.(); }
         }));
         documentRoot.on("click.jhsCoverButton", ".filterBtn, .favoriteBtn, .hasDownBtn, .hasWatchBtn", ((/** @type {CardActionEvent} */ event) => {
             event.preventDefault(); event.stopPropagation();
             try {
-                const button = $(event.currentTarget), card = button.closest(".item");
+                const button = $(event.currentTarget), card = this.cardForButton(button);
                 const { carNum, url, publishTime, fc2Source } = list.findCarNumAndHref(card);
                 const applyState = async (/** @type {string} */ action) => {
                     try {
@@ -212,10 +220,10 @@ export class CoverButtonController {
                         const flag = legacyActionToFlag(action);
                         if (!flag) throw new Error("不支持的状态操作");
                         await this.state.patch(carNum, { [flag]: true }, { type: "list-card-state", record: { carNum, url, names, publishTime, fc2Source } });
-                        this.notifications.ok("操作成功");
-                    } catch (error) { this.recordError("保存操作失败", error); this.notifications.error("操作失败"); }
+                        this.notifications.ok("已更新影片状态");
+                    } catch (error) { this.recordError("保存操作失败", error); this.notifications.error("状态更新失败，请重试"); }
                 };
-                button.hasClass("filterBtn") ? this.ui.confirm(event, `是否屏蔽${escapeHtml(carNum)}?`, () => applyState(d)) : button.hasClass("favoriteBtn") ? void applyState(h) : button.hasClass("hasDownBtn") ? void applyState(g) : button.hasClass("hasWatchBtn") && void applyState(p);
+                button.hasClass("filterBtn") ? this.ui.confirm(event, `屏蔽「${escapeHtml(carNum)}」？`, () => applyState(d), { confirmText: "屏蔽" }) : button.hasClass("favoriteBtn") ? void applyState(h) : button.hasClass("hasDownBtn") ? void applyState(g) : button.hasClass("hasWatchBtn") && void applyState(p);
                 this.closeCardMenus();
             } catch (error) { this.recordError("按钮点击处理失败", error); }
         }));
@@ -233,7 +241,7 @@ export class CoverButtonController {
         documentRoot.on("click.jhsCoverButton", ".site-jable, .site-avgle, .site-miss-av, .site-123-av", ((/** @type {CardActionEvent} */ event) => {
             try {
                 event.preventDefault(); event.stopPropagation();
-                const button = $(event.currentTarget), { carNum } = list.findCarNumAndHref(button.closest(".item"));
+                const button = $(event.currentTarget), { carNum } = list.findCarNumAndHref(this.cardForButton(button));
                 const url = button.hasClass("site-jable") ? `${jable}/search/${carNum}/`
                     : button.hasClass("site-avgle") ? `${avgle}/vod/search.html?wd=${carNum}`
                         : button.hasClass("site-miss-av") ? `${missAv}/search/${carNum}`
@@ -244,7 +252,7 @@ export class CoverButtonController {
         }));
         documentRoot.on("click.jhsCoverButton", ".titleSvg, .carNumSvg, .downSvg", ((/** @type {CardActionEvent} */ event) => {
             event.preventDefault(); event.stopPropagation();
-            const button = $(event.currentTarget), card = button.closest(".item"), { carNum, title } = list.findCarNumAndHref(card);
+            const button = $(event.currentTarget), card = this.cardForButton(button), { carNum, title } = list.findCarNumAndHref(card);
             const cover = card.find(this.isJavBus ? ".photo-frame img" : ".cover img");
             if (button.hasClass("titleSvg")) void this.clipboard.copyText("标题", title);
             else if (button.hasClass("carNumSvg")) void this.clipboard.copyText("番号", carNum);
@@ -254,40 +262,82 @@ export class CoverButtonController {
     }
     /** @param {JQueryHandle} e @param {JQueryHandle} t @param {string} n */
     showImg(e, t, n) {
-        const $ = this.ui.jquery;
-        e.html(this.icons.videoSvg).attr({ title: "播放视频", "aria-label": "播放视频" });
-        let a = $(`#${`${n}_preview_video`}`);
-        a.length > 0 && (a[0].pause(), a.parent().hide()), t.show(), t.removeClass("loading"), t.next(".loading-spinner").remove();
+        const session = this.activePreview;
+        if (session && session.card === e.closest(".item")[0]) { this.activePreview = null; session.dispose(); session.wrapper?.remove(); session.release?.(); }
+        e.html(this.icons.videoSvg).attr({title:"播放视频", "aria-label":"播放视频"});
+        t.show().removeClass("loading"); t.next(".loading-spinner").remove();
     }
-    /** @param {JQueryHandle} e @param {JQueryHandle} t @param {string} n */
-    async showVideo(e, t, n) {
-        const $ = this.ui.jquery;
+    /** @param {any} button @param {any} image @param {string} carNum */
+    async showVideo(button, image, carNum) {
         const settings = this.settings.snapshot();
-        if (!canUseCardPreview(settings)) return this.notifications.error("预览视频已关闭");
-        const generation = this.previewGeneration;
-        const a = `${n}_preview_video`;
-        let i = $(`#${a}`);
-        if (i.length > 0) return i.parent().show(), await this.playVideo(i[0], "当前视频源无法播放"), void t.hide();
-        t.addClass("loading"), t.after('<div class="loading-spinner"></div>');
-        const s = t.attr("data-full") || t.attr("src"), scope = this.scope, {sources: o, error: previewError} = await fetchDmmPreviewIfEnabled(n, this.storage, this.movie, scope, settings);
-        if (generation !== this.previewGeneration || scope.disposed || !isPreviewEnabled(this.settings.snapshot())) return void this.showImg(e, t, n);
-        if (!o) return this.notifications.error("REGION_BLOCKED" === previewError?.code ? previewError.message : "未解析到视频"), void this.showImg(e, t, n);
-        let r = this.settings.snapshot().videoQuality;
-        r = Z(Object.keys(o), r);
-        const c = o[r];
-        if (!c) return this.showImg(e, t, n);
-        const wrapper = this.document.createElement("div"), video = this.document.createElement("video");
-        this.isJavBus && (wrapper.className = "jhs-layout-d543acf8"), video.src = c, video.poster = s || "", video.id = a, video.controls = !0, video.loop = !0, video.muted = !0, video.playsInline = !0, video.className = "jhs-layout-a38a0e50", wrapper.appendChild(video),
-        t.parent().append(wrapper), t.hide(), t.removeClass("loading"), t.next(".loading-spinner").remove(), i = $(video);
-        const h = i[0];
-        h.load(); h.muted = false;
-        await this.playVideo(h, "REGION_BLOCKED" === previewError?.code ? previewError.message || "访问受限" : "当前视频源无法播放");
-        i.trigger("focus");
+        if (!canUseCardPreview(settings)) return;
+        const session = /** @type {any} */ (new MediaPreviewSession());
+        session.card = this.cardForButton(button)[0]; this.activePreview = session;
+        session.release = this.scope.addCleanup(() => session.dispose());
+        const alive = () => this.activePreview === session && !session.scope.disposed && session.card.isConnected && isPreviewEnabled(this.settings.snapshot());
+        const fallback = () => {
+            if (!alive()) return;
+            const reference = this.list.findCarNumAndHref(this.ui.jquery(session.card));
+            this.showImg(button,image,carNum);
+            if (reference.url && this.ui.openPage) this.ui.openPage(reference.url, carNum, true, {preview:true});
+            else this.notifications.info("暂无可用预览视频");
+        };
+        if (!isDmmEnabled(settings)) return fallback();
+        image.addClass("loading"); image.after('<div class="loading-spinner" role="status" aria-label="加载预览视频"><span class="loading-animation"></span></div>');
+        let refreshed = false;
+        const attempt = async () => {
+            const result = await fetchDmmPreviewIfEnabled(carNum,this.storage,this.movie,session.scope,this.settings.snapshot());
+            if (!alive()) return;
+            if (!result.sources) return fallback();
+            const quality = Z(Object.keys(result.sources),this.settings.snapshot().videoQuality);
+            if (!quality || !result.sources[quality]) return fallback();
+            const wrapper = this.document.createElement("div"), video = this.document.createElement("video");
+            wrapper.className = "jhs-card-preview"; video.className = "jhs-layout-a38a0e50";
+            video.src = result.sources[quality]; video.poster = image.attr("data-full") || image.attr("src") || "";
+            video.controls = true; video.tabIndex = 0; video.loop = true; video.muted = this.settings.snapshot().videoMuted !== false; video.playsInline = true;
+            wrapper.append(video); image.parent().append(wrapper); session.wrapper = wrapper; session.video = video;
+            session.scope.listen(video,"error",()=>{
+                if (!alive() || !session.mediaReady || session.video !== video || session.recovering) return;
+                session.recovering=true; session.mediaReady=false; video.pause(); wrapper.remove(); image.show();
+                this.recordError(`预览媒体错误 provider=dmm quality=${quality} code=${video.error?.code || 0} ready=${video.readyState} network=${video.networkState}`,"media-error");
+                if (!refreshed) { refreshed=true; invalidateDmmPreview(carNum,this.storage); void attempt().catch(error=>{if(alive()){this.recordError("预览恢复失败",error);fallback();}}); }
+                else fallback();
+            });
+            session.scope.addCleanup(() => { video.pause(); video.removeAttribute("src"); video.load(); wrapper.remove(); });
+            video.load();
+            const ready = await session.waitReady(video);
+            if (!alive()) return;
+            if (!ready) {
+                this.recordError(`预览媒体加载失败 provider=dmm quality=${quality} code=${video.error?.code || 0} ready=${video.readyState} network=${video.networkState}`, "load-error");
+                wrapper.remove();
+                if (video.error && !refreshed) { refreshed = true; invalidateDmmPreview(carNum,this.storage); return attempt(); }
+                return fallback();
+            }
+            session.mediaReady=true; session.recovering=false;
+            image.hide().removeClass("loading"); image.next(".loading-spinner").remove();
+            try {
+                let rejection;
+                const played = await safePlay(video, {notify:false, warn:(_message,error)=>{ rejection=error; }});
+                if (!played) throw rejection || new Error("媒体元素不可用");
+            }
+            catch (error) {
+                if (!alive()) return;
+                this.recordError(`预览播放拒绝 provider=dmm quality=${quality} code=${video.error?.code || 0} ready=${video.readyState} network=${video.networkState}`,error);
+                if (/** @type {any} */ (error)?.name === "NotAllowedError") { video.focus(); return; }
+                if (/** @type {any} */ (error)?.name === "AbortError") return;
+                wrapper.remove();
+                if (!refreshed) { refreshed = true; invalidateDmmPreview(carNum,this.storage); return attempt(); }
+                return fallback();
+            }
+            if (!alive()) video.pause(); else video.focus();
+        };
+        try { await attempt(); }
+        catch (error) { if (alive()) { this.recordError("预览解析失败",error); fallback(); } }
     }
 
     /** @param {string} message @param {unknown} error */
     recordError(message, error) {
-        this.diagnostics.recordError({ source: "cover-button-feature", featureId: "list", contributionId: "detail.cover-state-actions", message: `${message}: ${error instanceof Error ? error.message : String(error)}` });
+        this.diagnostics.recordError({ source: "cover-button-feature", featureId: "list", contributionId: "detail.cover-state-actions", message: `${message}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}` });
     }
 
     /** @param {HTMLMediaElement} media @param {string} message */
@@ -312,17 +362,9 @@ export class CoverButtonController {
     }
 
     stopAllPreviews() {
-        const $ = this.ui.jquery;
-        this.document.querySelectorAll('[id$="_preview_video"]').forEach((element) => {
-            if (element instanceof this.window.HTMLVideoElement) element.pause();
-            $(element).parent().remove();
-        });
-        $(".jhs-card-menu.is-open").removeClass("is-open");
-        $(".jhs-card-menu-trigger").attr("aria-expanded", "false");
-        $(".loading-spinner").remove();
-        $(".videoSvg[title='切回封面']").each((/** @type {number} */ _index, /** @type {HTMLElement} */ element) => {
-            const button = $(element), card = button.closest(".item");
-            card.find("img").show(); button.html(this.icons.videoSvg).attr({ title: "播放视频", "aria-label": "播放视频" });
-        });
+        const session = this.activePreview;
+        if (session) this.showImg(this.ui.jquery(session.card).find(".videoSvg"), this.ui.jquery(session.card).find("img").first(), "");
+        this.closeCardMenus();
+
     }
 }

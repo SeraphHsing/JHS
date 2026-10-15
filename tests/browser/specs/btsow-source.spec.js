@@ -43,14 +43,14 @@ for (const legacy of [false, true]) {
   test(`BTSOW uses the new GET HTML protocol with ${legacy ? "saved retired" : "default"} configuration`, async ({ page, context }) => {
     const root = await boot(page, context, { legacy });
     expect(await page.evaluate(() => window.__btsowProbe.calls)).toEqual([]);
-    await root.getByRole("button", { name: "搜索外部磁力", exact: true }).press("Enter");
+    await root.getByRole("button", { name: "搜索第三方磁力", exact: true }).press("Enter");
     await expect(root.locator(".magnet-result")).toHaveCount(2);
     await expect(root.locator('.magnet-tab[aria-selected="true"]')).toHaveText("全部");
     await expect(root.locator(".magnet-error")).toHaveCount(0);
     expect(await page.evaluate(() => window.__btsowProbe.calls)).toEqual([
       { url: "https://so2.btsow.top/search?key=1234567", method: "GET", body: undefined, responseType: "text" },
     ]);
-    await root.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
+    await root.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
     await expect(root.locator(".magnet-container")).toHaveCount(1);
     expect(await page.evaluate(() => window.__btsowProbe.calls.length)).toBe(1);
     await assertNoHorizontalOverflow(page);
@@ -59,14 +59,14 @@ for (const legacy of [false, true]) {
 
 test("BTSOW recognizes valid empty pages without reporting a failure", async ({ page, context }) => {
   const root = await boot(page, context, { body: empty });
-  await root.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
+  await root.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
   await expect(root.locator(".magnet-query-status")).toHaveText("未找到相关资源");
   await expect(root.locator(".magnet-error")).toHaveCount(0);
 });
 
 test("BTSOW identifies a parked response as failed and can retry", async ({ page, context }) => {
   const root = await boot(page, context, { body: "<title>Btsow Lol</title><h1>Directory Index</h1>" });
-  await root.getByRole("button", { name: "搜索外部磁力", exact: true }).click();
+  await root.getByRole("button", { name: "搜索第三方磁力", exact: true }).click();
   await expect(root.locator(".magnet-error")).toContainText("查询失败：BTSOW");
   await page.evaluate(html => { window.__btsowProbe.body = html; }, results);
   await root.getByRole("button", { name: "重试失败来源", exact: true }).click();

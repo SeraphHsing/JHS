@@ -1,28 +1,29 @@
+import { createImageViewer } from "./image-viewer.js";
 import { escapeHtml } from "./constants.js";
 import { JHS_Z_INDEX } from "./theme.js";
 import { LifecycleScope } from "./lifecycle-scope.js";
+import { getIcon } from "./icons.js";
+import { initializeTooltips } from "./tooltip-controller.js";
 
 let loggerRuntime;
 
 /** @param {import("./lifecycle-scope.js").LifecycleScope} scope @param {{ clogMsgCount?: number }} [options] */
 export function initializeLoggerRuntime(scope, { clogMsgCount = 2000 } = {}) {
 if (loggerRuntime) return loggerRuntime;
+initializeTooltips(scope, document);
 
 const maxLogCount = Math.min(3000, Math.max(100, Number(clogMsgCount) || 2000));
 /** @type {any} */
 let loggerClog;
 
-document.head.insertAdjacentHTML("beforeend", '\n        <style>\n            .loading-container {\n                position: fixed;\n                top: 0;\n                left: 0;\n                width: 100%;\n                height: 100%;\n                display: flex;\n                justify-content: center;\n                align-items: center;\n                background-color: rgba(0, 0, 0, 0.1);\n                z-index: var(--jhs-z-loading);\n            }\n    \n            .loading-animation {\n                position: relative;\n                width: 60px;\n                height: 12px;\n                background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);\n                border-radius: 6px;\n                animation: loading-animate 1.8s ease-in-out infinite;\n                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);\n            }\n    \n            .loading-animation:before,\n            .loading-animation:after {\n                position: absolute;\n                display: block;\n                content: "";\n                animation: loading-animate 1.8s ease-in-out infinite;\n                height: 12px;\n                border-radius: 6px;\n                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);\n            }\n    \n            .loading-animation:before {\n                top: -20px;\n                left: 10px;\n                width: 40px;\n                background: linear-gradient(90deg, #ff758c 0%, #ff7eb3 100%);\n            }\n    \n            .loading-animation:after {\n                bottom: -20px;\n                width: 35px;\n                background: linear-gradient(90deg, #ff9a9e 0%, #fad0c4 100%);\n            }\n    \n            @keyframes loading-animate {\n                0% {\n                    transform: translateX(40px);\n                }\n                50% {\n                    transform: translateX(-30px);\n                }\n                100% {\n                    transform: translateX(40px);\n                }\n            }\n        </style>\n    ');
-document.head.insertAdjacentHTML("beforeend", '<style>@media (prefers-reduced-motion:reduce){.loading-animation,.loading-animation:before,.loading-animation:after{animation:none}}</style>');
-
 window.loading = function() {
     const e = document.createElement("div");
-    e.className = "loading-container", e.setAttribute("role", "status"), e.setAttribute("aria-live", "polite"), e.setAttribute("aria-label", "处理中"), e.setAttribute("aria-busy", "true");
+    e.className = "loading-container jhs-ui", e.setAttribute("role", "status"), e.setAttribute("aria-live", "polite"), e.setAttribute("aria-label", "处理中"), e.setAttribute("aria-busy", "true");
     const t = document.createElement("div");
-    return t.className = "loading-animation", e.appendChild(t), document.body.appendChild(e),
+    return t.className = "loading-animation", t.setAttribute("aria-hidden", "true"), e.appendChild(t), document.body.appendChild(e),
     {
         close: () => {
-            e && e.parentNode && e.parentNode.removeChild(e);
+            e.setAttribute("aria-busy", "false"); e.remove();
         }
     };
 }, function() {
@@ -32,216 +33,38 @@ window.loading = function() {
         s.position = "string" == typeof a ? a : "center"), s.gravity && "center" !== s.gravity || (s.offset = {
             y: "calc(50vh - 150px)"
         });
-        const o = "var(--jhs-status-fav)", r = "var(--jhs-status-fav-tint)", l = "var(--jhs-status-down)", c = "var(--jhs-status-down-tint)", d = "var(--jhs-status-filter)", h = "var(--jhs-status-filter-tint)", g = {
-            borderRadius: "12px",
-            padding: "12px 16px",
-            boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
-            minWidth: "150px",
-            textAlign: "center",
-            zIndex: JHS_Z_INDEX.debug
-        }, p = {
+        const content = document.createElement("span"), message = document.createElement("span");
+        content.className = "jhs-toast__content";
+        content.insertAdjacentHTML("beforeend", getIcon({ info: "info", success: "circle-check", error: "triangle-alert" }[t]));
+        message.className = "jhs-toast__message"; message.textContent = String(e ?? ""); content.appendChild(message);
+        const p = {
             text: e,
-            duration: 2500,
-            close: !1,
+            node: content,
+            duration: t === "error" ? 5000 : 3000,
+            close: t === "error",
             gravity: "top",
             position: "center",
-            style: {
-                info: {
-                    ...g,
-                    background: `${o}`,
-                    color: "var(--jhs-status-fav-on)"
-                },
-                success: {
-                    ...g,
-                    background: `${l}`,
-                    color: "var(--jhs-status-down-on)"
-                },
-                error: {
-                    ...g,
-                    background: `${d}`,
-                    color: "var(--jhs-status-filter-on)"
-                }
-            }[t],
             stopOnFocus: !0,
             oldestFirst: !1,
-            ...s
+            ariaLive: t === "error" ? "assertive" : "polite",
+            ...s,
+            className: `jhs-toast jhs-ui jhs-toast--${t}${s.className ? ` ${s.className}` : ""}`
         };
         -1 === p.duration && (p.close = !0);
         const m = Toastify(p);
-        return m.showToast(), m.closeShow = () => {
-            m.toastElement.remove();
-        }, m;
+        m.showToast();
+        m.toastElement?.setAttribute("role", t === "error" ? "alert" : "status");
+        const close = m.toastElement?.querySelector(".toast-close");
+        if (close) { close.setAttribute("aria-label", "关闭提示"); close.replaceChildren(); close.insertAdjacentHTML("beforeend", getIcon("x")); }
+        m.closeShow = () => { m.toastElement?.remove(); };
+        return m;
     };
     window.show = {
         ok: (t, n = "center", a, i) => e(t, "success", n, a, i),
         error: (t, n = "center", a, i) => e(t, "error", n, a, i),
         info: (t, n = "center", a, i) => e(t, "info", n, a, i)
     };
-}(), function() {
-    let activeViewer = null;
-    document.head.insertAdjacentHTML("beforeend", `<style>
-        .jhs-image-viewer-owner { position:relative; overflow:hidden!important; }
-        .jhs-image-viewer-host { position:absolute; inset:0; overflow:hidden; }
-        .jhs-fc2-image-viewer .viewer-canvas { overflow:hidden!important; }
-        .jhs-fc2-image-viewer .viewer-footer { padding:8px; box-sizing:border-box; background:var(--jhs-surface); }
-        .jhs-image-viewer-toolbar { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:8px; }
-        .jhs-fc2-image-viewer .jhs-btn { min-width:44px; min-height:44px; }
-        .jhs-image-viewer-nav,.jhs-image-viewer-close { position:absolute; z-index:var(--jhs-z-local-popover); padding:0; width:44px; height:44px; font-size:28px; }
-        .jhs-image-viewer-nav { top:calc(50% - 22px); }
-        .jhs-image-viewer-prev { left:8px; }
-        .jhs-image-viewer-next { right:8px; }
-        .jhs-image-viewer-close { right:8px; top:8px; }
-        .jhs-image-viewer-count { min-width:48px; color:var(--jhs-text-muted); font-size:var(--jhs-font-size-sm); }
-    </style>`);
-    document.head.insertAdjacentHTML("beforeend", "\n        <style>\n            .viewer-canvas {\n                overflow: auto !important;\n            }\n            \n            .viewer-close {\n                background: rgba(222, 51, 51, 0.6) !important; /* 状态红 --jhs-status-filter 半透明弱化 */\n            }\n            .viewer-close:hover {\n                background: rgba(222, 51, 51, 0.8) !important;\n            }\n        </style>\n    "),
-    window.showImageViewer = function(t, n = "", options = {}) {
-        let a = null, i = !1;
-        if ("string" == typeof t || t instanceof String) {
-            const container = document.createElement("div"), image = document.createElement("img");
-            container.className = "temporary-container jhs-layout-c8be1ccb", image.src = String(t), image.alt = String(n), container.appendChild(image), document.body.appendChild(container), a = $(container), i = !0;
-        } else a = $(t);
-        const selectedImage = a.is("img") ? a[0] : a.find("img")[0], workspace = selectedImage?.closest(".jhs-fc2-workspace"), fc2Gallery = workspace?.querySelector('[data-jhs-slot="gallery"]');
-        const galleryRoot = fc2Gallery?.contains(selectedImage) ? $(fc2Gallery) : options.galleryRoot ? $(options.galleryRoot) : null;
-        let viewerHost = galleryRoot?.length ? galleryRoot : a;
-        const galleryImages = viewerHost.find("img").addBack("img").toArray(), initialViewIndex = Math.max(0, galleryImages.indexOf(selectedImage)), hasGallery = galleryImages.length > 1;
-        if (!selectedImage || !viewerHost.length || !selectedImage.isConnected || scope.disposed) return void (i && a.remove());
-        activeViewer?.close(false);
-        const owner = selectedImage.closest(".layui-layer"), focusTarget = selectedImage.closest("button,a,[tabindex]") || document.activeElement, mount = workspace && owner?.querySelector(".layui-layer-content");
-        const viewScope = new LifecycleScope("ui:image-viewer"), htmlOverflow = document.documentElement.style.overflow, bodyOverflow = document.body.style.overflow;
-        let o, releaseRuntime, overlay, counter;
-        const wasInert = workspace?.inert, hadOwnerClass = mount?.classList.contains("jhs-image-viewer-owner");
-        const session = { close(restoreFocus = true) {
-            if (viewScope.disposed) return;
-            viewScope.dispose();
-            releaseRuntime?.();
-            try { o?.destroy(); }
-            finally {
-                overlay?.remove();
-                if (mount) { mount.classList.toggle("jhs-image-viewer-owner", hadOwnerClass); workspace.inert = wasInert; }
-                i && a.remove();
-                if (activeViewer === session) {
-                    activeViewer = null;
-                    document.documentElement.style.overflow = document.querySelector(".layui-layer-shade") ? "hidden" : owner ? "" : htmlOverflow;
-                    document.body.style.overflow = bodyOverflow;
-                    if (restoreFocus && focusTarget?.isConnected) focusTarget.focus?.({ preventScroll: true });
-                }
-            }
-        } };
-        activeViewer = session;
-        releaseRuntime = scope.addCleanup(() => session.close(false));
-        // Layer 的实例编号会叠加到基础层级；固定 viewer 令牌无法覆盖反复打开的详情。
-        const viewerZ = [...document.querySelectorAll(".layui-layer")].reduce((value, root) => {
-            const style = window.getComputedStyle(root), z = Number(style.zIndex);
-            return style.display !== "none" && Number.isFinite(z) ? Math.max(value, z + 1) : value;
-        }, JHS_Z_INDEX.viewer);
-        if (mount) {
-            overlay = document.createElement("div");
-            overlay.className = "jhs-image-viewer-host";
-            overlay.style.zIndex = String(viewerZ);
-            const images = document.createElement("div");
-            images.hidden = true;
-            galleryImages.forEach(source => {
-                const image = document.createElement("img");
-                // Inline Viewer waits for every source image; placeholders let the selected full image load independently.
-                image.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E";
-                image.setAttribute("data-jhs-viewer-source", source.currentSrc || source.src); image.alt = source.alt;
-                images.appendChild(image);
-            });
-            overlay.appendChild(images); mount.classList.add("jhs-image-viewer-owner"); mount.appendChild(overlay);
-            workspace.inert = true;
-            viewerHost = $(images);
-        }
-        const navigate = direction => direction < 0 ? o?.prev(Boolean(workspace)) : o?.next(Boolean(workspace));
-        /** Keep the FC2 controls in the same bounded viewer as the image. */
-        const bindFc2Controls = () => {
-            if (viewScope.disposed || !o?.viewer) return;
-            const viewer = o.viewer, toolbar = document.createElement("div");
-            toolbar.className = "jhs-image-viewer-toolbar";
-            viewer.setAttribute("role", "dialog"); viewer.setAttribute("aria-label", "图片预览");
-            const button = (label, text, className, action, target = viewer) => {
-                const node = document.createElement("button");
-                node.type = "button"; node.className = `jhs-btn jhs-btn--secondary ${className}`;
-                node.setAttribute("aria-label", label); node.textContent = text;
-                viewScope.listen(node, "click", event => { event.preventDefault(); event.stopPropagation(); action(); });
-                target.appendChild(node); return node;
-            };
-            const close = button("关闭图片", "×", "jhs-image-viewer-close", () => session.close());
-            if (hasGallery) {
-                button("上一张", "‹", "jhs-image-viewer-nav jhs-image-viewer-prev", () => navigate(-1));
-                button("下一张", "›", "jhs-image-viewer-nav jhs-image-viewer-next", () => navigate(1));
-            }
-            button("放大图片", "放大", "", () => o.zoom(.1), toolbar);
-            button("缩小图片", "缩小", "", () => o.zoom(-.1), toolbar);
-            button("适应窗口", "适应", "", () => o.reset(), toolbar);
-            counter = document.createElement("span"); counter.className = "jhs-image-viewer-count";
-            counter.setAttribute("aria-live", "polite"); toolbar.appendChild(counter); o.footer.appendChild(toolbar);
-            let lastWheelAt = -Infinity;
-            viewScope.listen(viewer, "wheel", event => {
-                if (!hasGallery || event.ctrlKey || !event.deltaY) return;
-                event.preventDefault(); event.stopPropagation();
-                if (event.timeStamp - lastWheelAt < 180) return;
-                lastWheelAt = event.timeStamp; navigate(Math.sign(event.deltaY));
-            }, { passive: false });
-            if (mount && typeof ResizeObserver !== "undefined") {
-                const resize = new ResizeObserver(() => { if (o?.ready && !viewScope.disposed) o.resize(); });
-                resize.observe(overlay); viewScope.ownObserver(resize);
-            }
-            close.focus({ preventScroll: true });
-        };
-        const s = {
-            zIndex: viewerZ,
-            // Scoped reduced-motion CSS removes transitionend; Viewer must not wait for it to enable zoom.
-            ...(workspace ? { className: `jhs-fc2-image-viewer jhs-ui${mount ? " viewer-in" : ""}`, inline: Boolean(mount), zIndexInline: viewerZ, minWidth: 0, minHeight: 0, button: false, transition: false, initialCoverage: .9, ready: bindFc2Controls } : {}),
-            ...(mount ? { url: "data-jhs-viewer-source" } : {}),
-            navbar: !1,
-            initialViewIndex,
-            zoomOnWheel: !1,
-            zoomRatio: .1,
-            toggleOnDblclick: !1,
-            toolbar: workspace ? false : {
-                prev: hasGallery ? 1 : 0,
-                zoomIn: 1,
-                zoomOut: 1,
-                reset: 1,
-                next: hasGallery ? 1 : 0,
-                rotateLeft: 0,
-                rotateRight: 0,
-                flipHorizontal: 0,
-                flipVertical: 0
-            },
-            title: !1,
-            keyboard: !1,
-            viewed() {
-                if (viewScope.disposed) return;
-                if (workspace) { o.resize(); counter && (counter.textContent = `${o.index + 1} / ${galleryImages.length}`); return; }
-                o.zoomTo(1.4);
-                const x = (o.viewerData.width - o.imageData.width) / 2, y = (o.viewerData.height - o.imageData.height) / 2;
-                o.moveTo(x, y);
-            },
-            shown() {
-                if (viewScope.disposed) return;
-                document.documentElement.style.overflow = "hidden", document.body.style.overflow = "hidden";
-            },
-            hidden() { session.close(); }
-        };
-        try {
-            viewScope.listen(document, "keydown", t => {
-                if (hasGallery && "ArrowLeft" === t.key) return t.preventDefault(), t.stopPropagation(), void navigate(-1);
-                if (hasGallery && "ArrowRight" === t.key) return t.preventDefault(), t.stopPropagation(), void navigate(1);
-                if (workspace && "Tab" === t.key && o?.viewer) {
-                    const controls = [...o.viewer.querySelectorAll("button")], index = controls.indexOf(document.activeElement);
-                    t.preventDefault(); controls[(index + (t.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus(); return;
-                }
-                if ("Escape" === t.key || !workspace && " " === t.key) { t.preventDefault(); t.stopPropagation(); session.close(); }
-            }, true);
-            viewScope.observe(document.body, () => {
-                if (!selectedImage.isConnected || owner && !owner.isConnected) session.close(false);
-            }, { childList: true, subtree: true });
-            o = new Viewer(viewerHost[0], s);
-            o.show();
-        } catch (error) { session.close(false); throw error; }
-    };
-}(), window.ImageHoverPreview = class {
+}(), window.showImageViewer = createImageViewer(scope), window.ImageHoverPreview = class {
     constructor(config = {}) {
         this.scope = new LifecycleScope(`ui:image-hover:${Date.now()}`);
         this.config = {
@@ -306,7 +129,7 @@ window.loading = function() {
                 border-radius: var(--jhs-radius-xs);
                 background-color: var(--jhs-surface);
                 box-shadow: var(--jhs-shadow-lg);
-                transition: opacity var(--jhs-hover-transition, .2s) ease;
+                transition: opacity var(--jhs-motion-base) var(--jhs-ease);
             }
             .image-hover-preview.active { visibility: visible; opacity: 1; }
             .image-hover-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
@@ -314,7 +137,7 @@ window.loading = function() {
                 position: absolute;
                 inset: 0;
                 pointer-events: none;
-                background: rgba(0, 0, 0, .03);
+                background: var(--jhs-preview-scrim);
                 content: "";
             }
             .image-hover-preview.loading { min-width: 120px; min-height: 72px; }
@@ -324,7 +147,7 @@ window.loading = function() {
                 left: 50%;
                 color: var(--jhs-text-muted);
                 font-size: var(--jhs-font-size-md);
-                content: "加载中...";
+                content: "加载中…";
                 transform: translate(-50%, -50%);
             }
             .image-hover-preview__error { padding: var(--jhs-space-3); color: var(--jhs-danger); }
@@ -335,7 +158,6 @@ window.loading = function() {
         this.preview = document.createElement("div");
         this.preview.className = "image-hover-preview";
         this.preview.style.zIndex = String(this.resolvePreviewZIndex());
-        this.preview.style.setProperty("--jhs-hover-transition", `${this.config.transition}s`);
         document.body.appendChild(this.preview);
     }
     resolveOwnerElement() {
@@ -560,38 +382,18 @@ window.loading = function() {
         this.currentTarget = null;
     }
 }, function() {
-    document.head.insertAdjacentHTML("beforeend", "\n        <style>\n            .console-logger-container {\n                position: fixed;\n                bottom: 0;\n                right: 0;\n                z-index: var(--jhs-z-loading);\n                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;\n                display: flex;\n                flex-direction: column; \n                align-items: flex-end;\n                width: fit-content;\n            }\n\n            .console-logger-toggle {\n                width: 40px;\n                height: 30px;\n                background: var(--jhs-accent);\n                border-radius: 120px 10px 0 0;\n                display: flex;\n                align-items: center;\n                justify-content: center;\n                cursor: pointer;\n                box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);\n                transition: all 0.3s ease;\n                color: var(--jhs-accent-text-on);\n                font-size: 16px;\n            }\n\n            .console-logger-toggle:hover {\n                background: var(--jhs-accent-hover);\n            }\n\n            .console-logger-toggle::after {\n                content: '▼';\n                transition: transform 0.3s ease;\n            }\n\n            .console-logger-toggle.collapsed::after {\n                content: '▲';\n            }\n\n            .console-logger-window {\n                width: 400px;\n                height: 400px;\n                background: var(--jhs-surface);\n                border-radius: 10px 0 10px 10px;\n                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);\n                display: flex;\n                flex-direction: column;\n                overflow: hidden;\n                transform: translateY(0);\n                opacity: 1;\n                /* 简化过渡属性 */\n                transition: width 0.3s ease, height 0.3s ease, opacity 0.3s ease, transform 0.3s ease;\n            }\n\n            .console-logger-window.maximized {\n                width: 600px !important;\n                height: 85vh !important;\n                border-radius: 10px 0 0 10px; /* 调整圆角以匹配右下角 */\n            }\n\n            .console-logger-window.collapsed {\n                height: 0 !important;\n                min-height: 0 !important; \n                opacity: 0;\n            }\n\n            .console-logger-header {\n                background: var(--jhs-accent);\n                color: var(--jhs-accent-text-on);\n                padding: 12px 15px;\n                display: flex;\n                justify-content: space-between;\n                align-items: center;\n                flex-shrink: 0;\n            }\n\n            .console-logger-title {\n                font-weight: 600;\n                font-size: 16px;\n            }\n\n            .console-logger-controls {\n                display: flex;\n                gap: 10px;\n            }\n\n            .console-logger-controls button {\n                background: transparent;\n                border: 1px solid rgba(255, 255, 255, 0.3);\n                padding: 5px 10px;\n                font-size: 12px;\n                color: var(--jhs-accent-text-on);\n                border-radius: 4px;\n                cursor: pointer;\n                transition: background 0.3s;\n            }\n\n            .console-logger-controls button:hover {\n                background: rgba(255, 255, 255, 0.1);\n            }\n\n            /* 新增的按钮样式 */\n            .console-logger-maximize-toggle {\n                line-height: 1;\n                font-size: 14px !important; /* 使箭头看起来更大 */\n                padding: 5px 8px !important;\n            }\n            .console-logger-maximize-toggle::before {\n                content: '⇱'; /* Unicode symbol for maximized */\n            }\n            .console-logger-maximize-toggle.active::before {\n                content: '⇲'; /* Unicode symbol for minimized */\n            }\n\n\n            .console-logger-filters {\n                display: flex;\n                align-items: center;\n                gap: 5px;\n                padding: 10px;\n                background: var(--jhs-surface-2);\n                border-bottom: 1px solid var(--jhs-border);\n                flex-shrink: 0;\n                overflow-x: hidden; \n            }\n\n            /* 新增: 过滤器按钮组的容器，负责滚动 */\n            .console-logger-filter-group {\n                display: flex;\n                gap: 5px;\n                overflow-x: auto; /* 允许过滤器按钮滚动 */\n                flex-grow: 1; /* 占据剩余空间 */\n                padding-right: 10px; /* 避免滚动条影响按钮 */\n            }\n\n            .console-logger-filter {\n                padding: 5px 10px;\n                font-size: 12px;\n                border-radius: 15px;\n                background: var(--jhs-input-bg);\n                color: var(--jhs-text-muted);\n                border: 1px solid var(--jhs-border);\n                cursor: pointer;\n                transition: all 0.3s;\n                white-space: nowrap;\n                flex-shrink: 0; /* 确保不被压缩 */\n            }\n\n            .console-logger-filter.active {\n                background: var(--jhs-accent);\n                color: var(--jhs-accent-text-on);\n                border-color: var(--jhs-accent);\n            }\n\n            /* 新增: 滚动到底部按钮的样式 (位于 filtersContainer 内部右侧) */\n            .console-logger-scroll-to-bottom {\n                background: var(--jhs-accent);\n                border: none;\n                padding: 5px 10px;\n                font-size: 12px;\n                color: var(--jhs-accent-text-on);\n                border-radius: 4px;\n                cursor: pointer;\n                transition: background 0.3s;\n                line-height: 1;\n                height: fit-content;\n                white-space: nowrap;\n                margin-left: auto; /* 将按钮推到最右侧 */\n                flex-shrink: 0; /* 确保不被压缩 */\n            }\n\n            .console-logger-scroll-to-bottom:hover {\n                background: var(--jhs-accent-hover);\n            }\n\n\n            .console-logger-content {\n                flex: 1;\n                overflow-y: auto;\n                padding: 10px;\n                background: var(--jhs-surface);\n                word-wrap: break-word;\n                text-align: left;\n            }\n\n            .console-logger-entry {\n                padding: 8px 10px;\n                margin-bottom: 3px;\n                border-radius: 4px;\n                font-size: 12px;\n                line-height: 1.4;\n                /*animation: consoleFadeIn 0.3s ease;*/\n                border-left: 3px solid transparent;\n            }\n\n            @keyframes consoleFadeIn {\n                from { opacity: 0; transform: translateY(5px); }\n                to { opacity: 1; transform: translateY(0); }\n            }\n\n            .console-logger-timestamp {\n                color: var(--jhs-text-muted);\n                font-size: 11px;\n                margin-right: 2px;\n            }\n\n            @media (max-width: 767px) {\n                .console-logger-container {\n                    right: 10px;\n                    bottom: 10px;\n                }\n\n                .console-logger-window {\n                    width: calc(100vw - 20px);\n                    height: 300px;\n                }\n            }\n            \n            .console-logger-message[data-type=\"json\"] {\n                white-space: pre-wrap; \n            }\n        </style>\n    ");
-    document.head.insertAdjacentHTML("beforeend", `<style>
-        .console-logger-container { font-family:inherit; z-index:var(--jhs-z-debug); }
-        .console-logger-toggle { border:1px solid var(--jhs-border); border-radius:var(--jhs-radius-md) var(--jhs-radius-md) 0 0; box-shadow:var(--jhs-shadow-sm); transition:background-color var(--jhs-motion-fast) ease; }
-        .console-logger-toggle::after { transition:transform var(--jhs-motion-fast) ease; }
-        .console-logger-window { border:1px solid var(--jhs-border); border-radius:var(--jhs-radius-md) 0 var(--jhs-radius-md) var(--jhs-radius-md); box-shadow:var(--jhs-shadow-lg); transition:width var(--jhs-motion-fast) ease,height var(--jhs-motion-fast) ease,opacity var(--jhs-motion-fast) ease,transform var(--jhs-motion-fast) ease; }
-        .console-logger-window.maximized { border-radius:var(--jhs-radius-md) 0 0 var(--jhs-radius-md); }
-        .console-logger-controls button,.console-logger-filter,.console-logger-scroll-to-bottom,.console-logger-entry { border-radius:var(--jhs-radius-sm); }
-        .console-logger-controls button,.console-logger-scroll-to-bottom { transition:background-color var(--jhs-motion-fast) ease; }
-        .console-logger-filter { transition:background-color var(--jhs-motion-fast) ease,border-color var(--jhs-motion-fast) ease; }
-        @media (prefers-reduced-motion:reduce) { .console-logger-toggle,.console-logger-toggle::after,.console-logger-window,.console-logger-controls button,.console-logger-filter,.console-logger-scroll-to-bottom { transition:none; } }
-    </style>`);
     const e = {
         base: {
-            label: "信息",
-            background: "var(--jhs-status-fav-tint)",
-            borderLeftColor: "var(--jhs-accent)"
+            label: "信息"
         },
         warn: {
-            label: "警告",
-            background: "var(--jhs-status-watch-tint)",
-            borderLeftColor: "var(--jhs-status-watch)"
+            label: "警告"
         },
         error: {
-            label: "错误",
-            background: "var(--jhs-status-filter-tint)",
-            borderLeftColor: "var(--jhs-status-filter)"
+            label: "错误"
         },
         debug: {
-            label: "调试",
-            background: "var(--jhs-surface-2)",
-            borderLeftColor: "var(--jhs-border-strong)"
+            label: "调试"
         }
     }, t = {
         base: [ "base", "warn", "error" ],
@@ -615,26 +417,27 @@ window.loading = function() {
         createContainer() {
             this.container = document.createElement("div"), this.container.className = "console-logger-container jhs-ui",
             this.container.style.display = "none", this.toggleBtn = document.createElement("button"), this.toggleBtn.type = "button", this.toggleBtn.setAttribute("aria-label", "展开或收起运行日志"),
-            this.toggleBtn.className = "console-logger-toggle collapsed", this.container.appendChild(this.toggleBtn),
+            this.toggleBtn.className = "console-logger-toggle collapsed", this.toggleBtn.insertAdjacentHTML("beforeend", getIcon("chevron-down")), this.toggleBtn.setAttribute("aria-expanded", "false"), this.container.appendChild(this.toggleBtn),
             window.matchMedia?.("(max-width: 767px)").matches && (this.toggleBtn.hidden = !0, this.toggleBtn.style.display = "none"),
             this.window = document.createElement("div"), this.window.className = "console-logger-window collapsed";
             const t = document.createElement("div");
             t.className = "console-logger-header";
             const n = document.createElement("div");
-            n.className = "console-logger-title", n.textContent = "JHS Console";
+            n.className = "console-logger-title", n.textContent = "JHS 运行日志";
             const a = document.createElement("div");
             a.className = "console-logger-controls", this.maximizeBtn = document.createElement("button"),
-            this.maximizeBtn.textContent = "", this.maximizeBtn.classList.add("console-logger-maximize-toggle"),
+            this.maximizeBtn.type = "button", this.maximizeBtn.insertAdjacentHTML("beforeend", getIcon("maximize-2")), this.maximizeBtn.setAttribute("aria-label", "放大日志窗口"), this.maximizeBtn.classList.add("console-logger-maximize-toggle"),
             a.appendChild(this.maximizeBtn);
             const i = document.createElement("button");
-            i.textContent = "清空", i.addEventListener("click", (() => this.clear())), a.appendChild(i),
+            i.type = "button", i.textContent = "清空", i.addEventListener("click", (() => this.clear())), a.appendChild(i),
             t.appendChild(n), t.appendChild(a), this.filtersContainer = document.createElement("div"),
             this.filtersContainer.className = "console-logger-filters", this.filterButtonGroup = document.createElement("div"),
             this.filterButtonGroup.className = "console-logger-filter-group", this.filtersContainer.appendChild(this.filterButtonGroup),
             this.scrollToBottomBtn = document.createElement("button"), this.scrollToBottomBtn.className = "console-logger-scroll-to-bottom",
-            this.scrollToBottomBtn.textContent = "到底部", this.filtersContainer.appendChild(this.scrollToBottomBtn),
+            this.scrollToBottomBtn.type = "button", this.scrollToBottomBtn.textContent = "到底部", this.filtersContainer.appendChild(this.scrollToBottomBtn),
             this.content = document.createElement("div"), this.content.className = "console-logger-content jhs-scrollbar",
             this.window.appendChild(t), this.window.appendChild(this.filtersContainer), this.window.appendChild(this.content),
+            scope.addCleanup(() => { document.body.removeAttribute("data-jhs-debug-visible"); this.container.remove(); }),
             this.container.appendChild(this.window), document.body.appendChild(this.container),
             Object.keys(e).forEach((t => {
                 const n = document.createElement("button");
@@ -661,7 +464,7 @@ window.loading = function() {
         }
         toggleExpandCollapsed() {
             const e = this.window.classList.toggle("collapsed");
-            this.toggleBtn.classList.toggle("collapsed"), e ? localStorage.setItem(i, "no") : (localStorage.setItem(i, "yes"),
+            this.toggleBtn.classList.toggle("collapsed"), this.toggleBtn.setAttribute("aria-expanded", String(!e)), e ? localStorage.setItem(i, "no") : (localStorage.setItem(i, "yes"),
             this.reRenderAllLogs());
         }
         checkInitialCollapseState() {
@@ -670,15 +473,24 @@ window.loading = function() {
             setTimeout((() => {
                 this.content.scrollTop = this.content.scrollHeight;
             }), 0)) : (this.window.classList.add("collapsed"), this.toggleBtn.classList.add("collapsed"));
+            this.toggleBtn.setAttribute("aria-expanded", String(!this.window.classList.contains("collapsed")));
         }
         checkInitialMaximizeState() {
             "maximized" === localStorage.getItem(a) && (this.window.classList.add("maximized"),
-            this.maximizeBtn.classList.add("active"));
+            this.maximizeBtn.classList.add("active")), this.updateMaximizeIcon();
         }
         toggleMaximize() {
             const e = this.window.classList.toggle("maximized");
             this.maximizeBtn.classList.toggle("active", e), e ? localStorage.setItem(a, "maximized") : localStorage.setItem(a, "minimized"),
             this.window.classList.contains("collapsed") || (this.content.scrollTop = this.content.scrollHeight);
+            this.updateMaximizeIcon();
+        }
+        updateMaximizeIcon() {
+            const maximized = this.window.classList.contains("maximized");
+            this.maximizeBtn.replaceChildren();
+            this.maximizeBtn.insertAdjacentHTML("beforeend", getIcon(maximized ? "minimize-2" : "maximize-2"));
+            this.maximizeBtn.setAttribute("aria-label", maximized ? "还原日志窗口" : "放大日志窗口");
+            this.maximizeBtn.setAttribute("aria-pressed", String(maximized));
         }
         addLog(t, a = "base", ...i) {
             return this._appendLog(false, t, a, ...i);
@@ -781,8 +593,6 @@ window.loading = function() {
         _createLogElement(t) {
             const n = document.createElement("div");
             n.className = "console-logger-entry", n.dataset.type = t.type, n.dataset.id = t.id;
-            const a = e[t.type] || e.base;
-            n.style.borderLeft = "3px solid " + a.borderLeftColor, n.style.background = a.background;
             const i = (t.timestamp instanceof Date ? t.timestamp : new Date(t.timestamp)).toTimeString().split(" ")[0];
             const timestamp = document.createElement("span");
             timestamp.className = "console-logger-timestamp";
@@ -844,11 +654,11 @@ window.loading = function() {
             });
         }
         show() {
-            (this.isInitialized && this.container || this.tryInitialize() && this.container) && (this.container.style.display = "",
+            (this.isInitialized && this.container || this.tryInitialize() && this.container) && (this.container.style.display = "", document.body.setAttribute("data-jhs-debug-visible", "true"),
             this.reRenderAllLogs());
         }
         hide() {
-            this.isInitialized && this.container && (this.container.style.display = "none");
+            this.isInitialized && this.container && (this.container.style.display = "none", document.body.removeAttribute("data-jhs-debug-visible"));
         }
         lowZIndex() {
             this.isInitialized && this.container && (this.container.style.zIndex = String(JHS_Z_INDEX.debugLow));
@@ -882,69 +692,10 @@ window.loading = function() {
         const n = e.target, a = [ ".console-logger-container", ".layui-layer-shade", ".loading-container" ].join(",");
         n.closest(a) ? t.highZIndex() : t.lowZIndex();
     }));
-}(), function() {
-    function e(e, t, n) {
-        const a = function(e) {
-            const t = document.createElement("div");
-            t.classList.add("js-tooltip");
-            const n = document.createElement("div");
-            return n.innerHTML = escapeHtml(e), t.appendChild(n), document.body.appendChild(t), t;
-        }(t);
-        a.style.display = "block";
-        const i = e.getBoundingClientRect(), s = a.getBoundingClientRect();
-        a.style.display = "none";
-        const o = window.innerWidth, r = window.innerHeight;
-        let l, c, d = n;
-        const h = e => e >= 8 && e + s.height <= r - 8, g = e => e >= 8 && e + s.width <= o - 8, p = i.left + i.width / 2 - s.width / 2, m = i.top + i.height / 2 - s.height / 2;
-        switch (n) {
-          case "top":
-            c = i.top - s.height - 0, c < 8 && h(i.bottom + 0) && (c = i.bottom + 0, d = "bottom");
-            break;
-
-          case "bottom":
-            c = i.bottom + 0, c + s.height > r - 8 && h(i.top - s.height - 0) && (c = i.top - s.height - 0,
-            d = "top");
-            break;
-
-          case "left":
-            l = i.left - s.width - 0, l < 8 && g(i.right + 0) && (l = i.right + 0, d = "right");
-            break;
-
-          case "right":
-            l = i.right + 0, l + s.width > o - 8 && g(i.left - s.width - 0) && (l = i.left - s.width - 0,
-            d = "left");
-        }
-        const u = "left" === d || "right" === d;
-        "top" === d || "bottom" === d ? (l = p, l < 8 ? l = 8 : l + s.width > o - 8 && (l = o - s.width - 8)) : u && (c = m,
-        c < 8 ? c = 8 : c + s.height > r - 8 && (c = r - s.height - 8)), a.style.left = `${l}px`,
-        a.style.top = `${c}px`, a.classList.add("is-active"), e.tooltipElement = a;
-    }
-    document.head.insertAdjacentHTML("beforeend", "\n        <style>\n            .js-tooltip {\n                position: fixed;\n                padding: 8px 12px;\n                border: 1px solid var(--jhs-border);\n                border-radius: var(--jhs-radius-sm);\n                white-space: normal;\n                max-width: 600px;\n                pointer-events: none;\n                font-size: 14px;\n                line-height: 1.5;\n                z-index: var(--jhs-z-tooltip);\n                background: var(--jhs-surface-2);\n                color: var(--jhs-text);\n                box-shadow: var(--jhs-shadow-md);\n                display: none;\n            }\n            .js-tooltip.is-active {\n                display: block !important;\n            }\n        </style>\n    ");
-    const t = "[data-tip-top], [data-tip-bottom], [data-tip-left], [data-tip-right], [data-tip]";
-    scope.listen(document, "mouseover", (n => {
-        const a = n.target.closest(t);
-        if (a && !a.tooltipElement) {
-            let t, n = "top";
-            if (a.hasAttribute("data-tip-bottom") ? (t = a.getAttribute("data-tip-bottom"),
-            n = "bottom") : a.hasAttribute("data-tip-left") ? (t = a.getAttribute("data-tip-left"),
-            n = "left") : a.hasAttribute("data-tip-right") ? (t = a.getAttribute("data-tip-right"),
-            n = "right") : a.hasAttribute("data-tip-top") ? (t = a.getAttribute("data-tip-top"),
-            n = "top") : a.hasAttribute("data-tip") && (t = a.getAttribute("data-tip"), n = "top"),
-            !t) return;
-            a.hoverTimeout = setTimeout((() => {
-                a.matches(":hover") && !a.tooltipElement && e(a, t, n);
-            }), 50);
-        }
-    })), scope.listen(document, "mouseout", (e => {
-        const n = e.target.closest(t);
-        var a;
-        n && (n.hoverTimeout && (clearTimeout(n.hoverTimeout), n.hoverTimeout = null), n.contains(e.relatedTarget) || n.tooltipElement && ((a = n.tooltipElement) && a.parentNode && a.remove(),
-        n.tooltipElement = null));
-    }));
 }();
 const loggerLoading = window.loading;
 const loggerShow = window.show;
-loggerRuntime = Object.freeze({ loading: loggerLoading, show: loggerShow, clog: loggerClog });
+loggerRuntime = Object.freeze({ loading: loggerLoading, show: loggerShow, clog: loggerClog, showImageViewer: window.showImageViewer });
 // The frozen runtime object is the source of truth for bootstrap/compatibility;
 // window/globalThis only keep compatibility mirrors for legacy code.
 window.loading = loggerRuntime.loading;

@@ -105,7 +105,7 @@ describe("backup loading lifecycle", () => {
         });
         await expect(backupDataByWebDav("JHS", { createClient: () => ({ backup }) }, dependencies)).resolves.toBeUndefined();
         expect(backup).toHaveBeenCalledOnce();
-        expect(ok).toHaveBeenCalledWith("备份完成");
+        expect(ok).toHaveBeenCalledWith("已备份数据");
         expect(error).not.toHaveBeenCalled();
         expect(warn).toHaveBeenCalledWith("[WebDAV备份] 关闭加载提示失败", expect.any(Object));
     });
@@ -122,13 +122,13 @@ describe("backup loading lifecycle", () => {
             createClient: vi.fn(() => ({ getBackupList })),
         }, dependencies);
         expect(getBackupList).toHaveBeenCalledWith("JHS");
-        expect(openList).toHaveBeenCalledWith(files, expect.any(Object), "WebDav");
+        expect(openList).toHaveBeenCalledWith(files, expect.any(Object), "WebDAV");
         expect(close).toHaveBeenCalledOnce();
     });
 
     it("imports a selected JSON backup using injected document, reader, storage, and UI services", async () => {
         const imported = { records: ["synthetic"] }, diff = { summary: { added: 1 } };
-        const input = { remove: vi.fn(), click: vi.fn() };
+        const input = { remove: vi.fn(), click: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() };
         let reader;
         class FakeFileReader {
             constructor() { reader = this; }
@@ -142,7 +142,7 @@ describe("backup loading lifecycle", () => {
             document: { createElement: vi.fn(() => input), body: { appendChild: vi.fn() } },
             legacyStorage: { exportData: vi.fn(async () => ({ records: [] })), diffData: vi.fn(async () => diff) },
             domUi: { loading: vi.fn(() => ({ close })), tableConstructor: null },
-            window: { performance: globalThis.performance, setTimeout: vi.fn(), FileReader: FakeFileReader },
+            window: { performance: globalThis.performance, setTimeout: vi.fn(), clearTimeout: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), FileReader: FakeFileReader },
         });
         await importSettingData(preview, dependencies);
         await input.onchange({ currentTarget: { files: [{ contents: JSON.stringify(imported) }] } });
@@ -150,6 +150,8 @@ describe("backup loading lifecycle", () => {
         expect(preview).toHaveBeenCalledWith(diff, imported, null);
         expect(close).toHaveBeenCalledOnce();
         expect(input.remove).toHaveBeenCalledOnce();
+        expect(input.hidden).toBe(true);
+        expect(input.addEventListener).toHaveBeenCalledWith("cancel", expect.any(Function), { once: true });
     });
 
     it("exports data through injected storage and download services", async () => {
@@ -161,6 +163,6 @@ describe("backup loading lifecycle", () => {
         });
         await exportSettingData(dependencies);
         expect(download).toHaveBeenCalledWith(JSON.stringify({ records: [1] }), "2026_09_27.json");
-        expect(ok).toHaveBeenCalledWith("数据导出成功");
+        expect(ok).toHaveBeenCalledWith("已导出数据");
     });
 });

@@ -7,7 +7,7 @@ const SEARCH_TYPES = Object.freeze([
     ["director", "导演"], ["code", "番号"], ["list", "清单"],
 ]);
 
-export const JAVDB_NAVIGATION_CSS = ".highlight-red { color: var(--jhs-status-filter) !important; font-weight: bold; }";
+export const JAVDB_NAVIGATION_CSS = ".highlight-red { color: var(--jhs-status-filter) !important; font-weight:var(--jhs-font-weight-semibold); }";
 
 /** Own JavDB search controls and navigation embellishments for the page lifetime. */
 export class JavDbNavigationController {
@@ -78,14 +78,14 @@ export class JavDbNavigationController {
         dropdown.className = "navbar-item has-dropdown is-hoverable";
         const trigger = this.document.createElement("a");
         trigger.className = "navbar-link";
-        trigger.textContent = "其它";
+        trigger.textContent = "其他";
         const menu = this.document.createElement("div");
         menu.className = "navbar-dropdown is-boxed";
         const feedback = this.document.createElement("a");
         feedback.className = "navbar-item";
         feedback.href = "/feedbacks/new";
         feedback.target = "_blank";
-        feedback.textContent = "反饋";
+        feedback.textContent = "反馈";
         menu.append(feedback);
         /** @type {Array<{url: string, label: string}>} */
         let externalLinks = [];
@@ -128,14 +128,14 @@ export class JavDbNavigationController {
         const keyword = this.document.createElement("input");
         keyword.id = "search-keyword";
         keyword.type = "text";
-        keyword.placeholder = "输入影片番号、演员名等关键词进行检索";
+        keyword.placeholder = "搜索番号、标题或演员";
         keyword.className = "jhs-field";
         const advanced = this.document.createElement("a");
         advanced.href = "/search_advanced?noFold=1";
         advanced.title = "高级检索";
         advanced.className = "jhs-btn jhs-btn--secondary";
         const advancedText = this.document.createElement("span");
-        advancedText.textContent = "...";
+        advancedText.textContent = "…";
         advanced.append(advancedText);
         controls.append(type, keyword, advanced);
 

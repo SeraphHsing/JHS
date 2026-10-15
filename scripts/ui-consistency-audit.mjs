@@ -7,6 +7,12 @@ const detailManifest = await readFile(join(srcRoot, "features", "detail", "manif
 const fc2WorkspaceManifest = await readFile(join(srcRoot, "features", "detail", "fc2-workspace-manifest.js"), "utf8");
 const systemFeatureCatalog = await readFile(join(srcRoot, "features", "system", "catalog.js"), "utf8");
 const failures = [];
+const [controlStates, scrollLock, tooltipController, geometry] = await Promise.all([
+  readFile(join(srcRoot, "core", "control-states.js"), "utf8"),
+  readFile(join(srcRoot, "core", "page-scroll-lock.js"), "utf8"),
+  readFile(join(srcRoot, "core", "tooltip-controller.js"), "utf8"),
+  readFile(join(srcRoot, "core", "ui-geometry.js"), "utf8")
+]);
 
 function requireMatch(source, pattern, message) {
   if (!pattern.test(source)) failures.push(message);
@@ -89,9 +95,22 @@ for (const selector of [
 
 for (const state of [":hover", ":focus-visible", ":disabled", "prefers-reduced-motion", "--jhs-touch-target"])
   requireMatch(primitives, new RegExp(state.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `UI primitives missing ${state}`);
-for (const token of ["class JhsSelect", "menuitemradio", "OPTGROUP", "ArrowDown", "ArrowUp", "Home", "End", "Enter", "Escape", "Tab", "setValue", "setVisible", "refresh"])
+for (const token of ["class JhsSelect", "combobox", "listbox", "role=\"option\"", "OPTGROUP", "ArrowDown", "ArrowUp", "Home", "End", "Enter", "Escape", "Tab", "setValue", "setVisible", "refresh"])
   requireMatch(primitives, new RegExp(token), `JhsSelect missing ${token}`);
-requireMatch(primitives, /\.jhs-segmented__item[^}]*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center[^}]*line-height:\s*1/, "segmented items must be centered on both axes");
+requireMatch(primitives, /manageKeyboard: false/, "combobox must own its keyboard handling");
+requireMatch(theme, /\.jhs-ui \*, \.jhs-scrollbar\) \{ scrollbar-width:thin/, "scrollbars must use owned roots and the compatibility alias");
+forbidMatch(geometry, /scrollbar-width|::-webkit-scrollbar/, "geometry must not redefine shared scrollbars");
+forbidMatch(theme, /has-navbar-fixed-top[^\n]*scrollbar/, "host page scrollbars must retain their native styling");
+for (const token of [":autofill", "::-moz-range-track", "::-moz-range-thumb", "prefers-contrast:more", "forced-colors:active", "jhs-link", "tabulator-selected:hover"]) {
+  if (!controlStates.includes(token)) failures.push(`shared control states missing ${token}`);
+}
+for (const token of ["acquirePageScrollLock", "scrollbar-gutter", "padding-inline-end", "tokens.delete"]) {
+  if (!scrollLock.includes(token)) failures.push(`page scroll lock missing ${token}`);
+}
+for (const token of ['"role", "tooltip"', '"aria-describedby"', '"focusin"', '"pointerover"', "stopImmediatePropagation", "tooltipIds"]) {
+  if (!tooltipController.includes(token)) failures.push(`owned tooltip controller missing ${token}`);
+}
+requireMatch(primitives, /\.jhs-segmented__item[^}]*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center[^}]*line-height:\s*var\(--jhs-line-height-tight\)/, "segmented items must be centered on both axes with the shared tight line height");
 requireMatch(theme, /\.layui-layer-close[\s\S]*::before[\s\S]*::after/, "layer close control must draw its own themed BasePlugin");
 
 requireMatch(build, /entryPoints:\s*\[srcPath\]/, "build must use the ESM main entry point");
@@ -104,7 +123,7 @@ requireMatch(injection, /export function injectCoreCss\(styles,\s*detailPanelCss
 const bootstrap = await readFile(join(srcRoot, "app", "bootstrap.js"), "utf8");
 requireMatch(bootstrap, /import \{ injectCoreCss \} from "\.\.\/core\/css-injection\.js"/, "Bootstrap must own core CSS injection");
 requireMatch(bootstrap, /injectCoreCss\(context\.services\.styles\)/, "Bootstrap must execute core CSS injection through StyleRegistry");
-requireMatch(bootstrap, /if \(route === "detail" \|\| route === "owned-detail"\)[\s\S]*await import\("\.\.\/ui\/detail\/panel-styles\.js"\)[\s\S]*context\.rootScope\.addCleanup\(context\.services\.styles\.register\("jhs-detail-panels", buildDetailPanelCss\(\)\)\)/, "detail panel CSS must load only on detail routes and clean up with the root scope");
+requireMatch(bootstrap, /if \(route === "list" \|\| route === "detail" \|\| route === "owned-detail"\)[\s\S]*await import\("\.\.\/ui\/detail\/panel-styles\.js"\)[\s\S]*context\.rootScope\.addCleanup\(context\.services\.styles\.register\("jhs-detail-panels", buildDetailPanelCss\(\)\)\)/, "shared detail panel CSS must cover list dialogs and detail routes and clean up with the root scope");
 requireMatch(bootstrap, /initializeUiAccessibility\(context\.rootScope\)/, "dynamic UI accessibility enhancer must use the App Root Lifecycle");
 requireMatch(injection, /register\("jhs-core-layout", F\)/, "clean global support CSS must be registered");
 forbidMatch(injection, /cleanGlobalCss/, "legacy regex CSS cleanup layer must be deleted");
@@ -176,7 +195,9 @@ requireMatch(logger, /this\.placement = this\.choosePlacement/, "image preview m
 forbidMatch(detail, /observer\.observe\(document\.body/, "detail workspace must not observe the entire document body");
 requireMatch(javDbHostAdapter, /querySelector\("#magnets-content"\)/, "JavDB resource adapter must preserve the magnet controller boundary");
 requireMatch(detail, /data-jhs-slot="summary-actions"[\s\S]*data-jhs-slot="reviews"[\s\S]*data-jhs-slot="related"/, "host workspace must expose summary actions and reviews-before-related post-resource slots");
-requireMatch(detail, /this\.lifecycleScope\.observe\(adapter\.observeRoot\[0\]/, "detail resource lifecycle must stay scoped to the resource observe root");
+requireMatch(detail, /this\.lifecycleScope\.observe\(observeRoot/, "detail replacement observer must stay inside the detail host");
+requireMatch(detail, /this\.hostAdapter\?\.isResourceMutation\?\.\(record\)/, "detail updates must filter mutations through the host resource boundary");
+requireMatch(javDbHostAdapter, /isResourceMutation\(record\)/, "JavDB must classify delayed or replaced resources");
 forbidMatch(detail, /\.jhs-detail-host-workspace\s*\{[^}]*display\s*:\s*flex|data-jhs-host-region[^}]*order\s*:/, "host details must not be converted to an ordered flex layout");
 forbidMatch(detail, /routeSections|moveToSection|movePanelToSection/, "detail workspace must not continuously remount panels");
 for (const [source, label] of [[reviews, "reviews"], [related, "related lists"]]) {
@@ -184,8 +205,8 @@ for (const [source, label] of [[reviews, "reviews"], [related, "related lists"]]
 }
 requireMatch(reviewUi, /document\.createTextNode/, "review external content must be rendered as text nodes");
 requireMatch(reviewUi, /appendLink/, "review links must use compact semantic controls");
-requireMatch(panelStyles, /font-size:15px[\s\S]*font-weight:600/, "review author must use 15px semibold text");
-requireMatch(panelStyles, /jhs-review-content[^}]*font-size:16px[^}]*line-height:1\.7/, "review body readability contract is missing");
+requireMatch(panelStyles, /jhs-review-author[^}]*font-size:var\(--jhs-font-size-md\)[^}]*font-weight:var\(--jhs-font-weight-semibold\)/, "review author must use the shared body size and semibold weight");
+requireMatch(panelStyles, /jhs-review-content[^}]*font-size:var\(--jhs-font-size-lg\)[^}]*line-height:var\(--jhs-line-height-read\)/, "review body readability contract is missing");
 forbidMatch(panelStyles, /jhs-review-content[^}]*max-width/, "review body must use the full available width");
 requireMatch(panelStyles, /jhs-related-heading[\s\S]*jhs-related-meta/, "related lists must use one-column heading and metadata structure");
 requireMatch(detail, /normalizeHostActions\(root\.find\("\.video-meta-panel"\)\.first\(\)\)/, "JavDB host action normalization must stay scoped to its info container");
@@ -199,7 +220,7 @@ for (const pattern of [/localStorage\.getItem\("jhs_sortMethod"\)/, /draft\.sort
 for (const key of ["ArrowDown", "ArrowUp", "Home", "End", "Escape"])
   requireMatch(listButtons, new RegExp(key), `sort control is missing ${key} keyboard behavior`);
 forbidMatch(listButtons, /<select[^>]+sort-toggle-btn/, "native sort select must not return");
-requireMatch(coverButtons, /width:152px/, "card menus must use the anchored 152px popover");
+requireMatch(coverButtons, /new OwnedPopover\(trigger\[0\],menu\[0\]\)/, "card menus must use the shared viewport-constrained portal");
 requireMatch(coverButtons, /jhs-card-menu__dot[^}]*width:8px/, "card status menu must use 8px state dots");
 for (const key of ["ArrowDown", "ArrowUp", "Home", "End", "Escape"])
   requireMatch(coverButtons, new RegExp(key), `card menus are missing ${key} keyboard behavior`);
@@ -210,7 +231,7 @@ forbidMatch(injection, /scale\(1\.04\)|\.masonry \.item:hover/, "JavBus cover ho
 requireMatch(magnet, /class="magnet-copy"[\s\S]*copy-btn[\s\S]*jhs-offline-btn/, "resource row must directly contain copy and unified offline buttons");
 forbidMatch(magnet, /magnet-(?:more|overflow)|more-menu/, "resource row must not hide actions in a more menu");
 const newVideoStylesSource = await readFile(join(srcRoot, "features", "discovery", "new-video-styles.js"), "utf8");
-requireMatch(newVideoStylesSource, /repeat\(auto-fit,minmax\(min\(100%,260px\),1fr\)\)/, "new video cards must use the adaptive 260px grid");
+requireMatch(newVideoStylesSource, /repeat\(auto-fill,minmax\(min\(100%,260px\),1fr\)\)/, "actor cards must preserve the adaptive 260px grid without stretching a lone card");
 requireMatch(newVideoStylesSource, /\.newVideoToolBox\s*\{[^}]*width:\s*100%[^}]*min-width:\s*0[^}]*box-sizing:\s*border-box/, "new video workspace must contain its own width");
 requireMatch(newVideoStylesSource, /#actress-card-container\s*\{[^}]*min-width:\s*0[^}]*box-sizing:\s*border-box[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/, "actress card container must prevent horizontal overflow without disabling vertical scrolling");
 requireMatch(newVideoStylesSource, /#new-video-list-container\s*\{[^}]*min-width:\s*0[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/, "new video list container must prevent horizontal overflow without disabling vertical scrolling");
@@ -271,7 +292,7 @@ requireMatch(highlightMagnet, /row\.classList\.remove\("high-quality", "jhs-magn
 requireMatch(highlightMagnet, /button\?\.removeAttribute\("data-tip"\)/, "disabling magnet filtering must clear its hint");
 requireMatch(fc2Workspace, /createFc2DetailContext/, "FC2 detail workspace must own a scoped lifecycle context");
 requireMatch(fc2Workspace, /\[ "summary", "影片概览" \], \[ "gallery", "预览与剧照" \], \[ "resources", "资源" \], \[ "reviews", "评论" \], \[ "related", "相关清单" \]/, "FC2 workspace must place reviews before related lists");
-requireMatch(commandbar, /<button type="button" id="jhs-fab" class="jhs-btn"/, "mobile FAB must be a native JHS button");
+requireMatch(commandbar, /<button type="button" id="jhs-fab" class="jhs-btn jhs-ui"/, "mobile FAB must be a native owned JHS button");
 requireMatch(commandbar, /role="menuitem" class="jhs-btn jhs-fab-menu-item"/, "mobile FAB items must use native menu buttons");
 requireMatch(commandbar, /ArrowDown[\s\S]*ArrowUp[\s\S]*Home[\s\S]*End/, "mobile FAB menu must support keyboard navigation");
 const settingPlugin = await readFile(join(srcRoot, "plugins", "backup", "setting.js"), "utf8");
@@ -327,7 +348,9 @@ for (const file of sourceFiles) {
     `${path} contains a forbidden bounce animation or negative menu offset`);
   forbidMatch(source, /(?:search|searchstr)[^\n]{0,80}undefined(?:\.html)?/i, `${path} can construct an undefined search URL`);
 }
-if (selectCount < 22) failures.push(`expected every JHS select to remain enhanced, found only ${selectCount}`);
+requireMatch(settingRenderer, /descriptor\.type === "select"[\s\S]*<select class="jhs-select-source"/, "descriptor selects must use the enhanced source class");
+const settingController = await readFile(join(srcRoot, "plugins", "backup", "setting.js"), "utf8");
+requireMatch(settingController, /JhsSelect\.refreshAll\(e\)/, "all rendered settings selects must be enhanced after hydration");
 
 if (failures.length) {
   failures.forEach((failure) => console.error(`FAIL: ${failure}`));

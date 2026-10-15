@@ -4,7 +4,7 @@ import { JhsSelect } from "../core/ui-primitives.js";
 
 /** Explicit Feature capability for the existing jQuery boundary and JHS select controls. */
 export class DomUiService {
-    /** @param {((value: any) => any) | undefined} jquery @param {{q?: (position: {clientX: number, clientY: number}, message: string, onConfirm: () => void) => unknown, closePage?: (options?: Record<string, unknown>) => Promise<unknown> | unknown, getOwningLayerIndex?: (options?: Record<string, unknown>) => number|null, getDialogArea?: (size?: string) => [string, string], getResponsiveArea?: (area?: [string, string]) => [string, string], setupEscClose?: (layerIndex: number) => unknown, download?: (data: any, filename: string) => unknown, formatDate?: (value: any) => string, openPage?: (...args: any[]) => unknown, isHidden?: (element: any) => boolean, smoothScrollToTop?: (duration?: number) => Promise<unknown> | unknown} | undefined} legacyUtils @param {((image: Element) => unknown) | undefined} openImageViewer @param {(() => {close?: () => void} | undefined) | undefined} startLoading @param {((config: Record<string, unknown>) => any) | undefined} createImageHoverPreview @param {any} [tableConstructor] */
+    /** @param {((value: any) => any) | undefined} jquery @param {{q?: (position: {clientX: number, clientY: number}, message: string, onConfirm: () => void, onCancel?: () => void, options?: {confirmText?: string, cancelText?: string}) => unknown, closePage?: (options?: Record<string, unknown>) => Promise<unknown> | unknown, getOwningLayerIndex?: (options?: Record<string, unknown>) => number|null, getDialogArea?: (size?: string) => [string, string], getResponsiveArea?: (area?: [string, string]) => [string, string], setupEscClose?: (layerIndex: number) => unknown, download?: (data: any, filename: string) => unknown, formatDate?: (value: any) => string, openPage?: (...args: any[]) => unknown, isHidden?: (element: any) => boolean, smoothScrollToTop?: (duration?: number) => Promise<unknown> | unknown} | undefined} legacyUtils @param {((source: string | Element, alt?: string, options?: Record<string, any>) => unknown) | undefined} openImageViewer @param {(() => {close?: () => void} | undefined) | undefined} startLoading @param {((config: Record<string, unknown>) => any) | undefined} createImageHoverPreview @param {any} [tableConstructor] */
     constructor(jquery, legacyUtils, openImageViewer = undefined, startLoading = undefined, createImageHoverPreview = undefined, tableConstructor = undefined) {
         this.tableConstructor = typeof tableConstructor === "function" ? tableConstructor : null;
         this.jqueryRuntime = typeof jquery === "function" ? jquery : null;
@@ -12,10 +12,10 @@ export class DomUiService {
             if (!this.jqueryRuntime) throw new Error("页面 UI 依赖尚未加载");
             return this.jqueryRuntime(value);
         };
-        /** @type {(position: {clientX: number, clientY: number}, message: string, onConfirm: () => void) => unknown} */
-        this.confirm = (position, message, onConfirm) => {
+        /** @type {(position: {clientX: number, clientY: number}, message: string, onConfirm: () => void, options?: {confirmText?: string, cancelText?: string}) => unknown} */
+        this.confirm = (position, message, onConfirm, options) => {
             if (typeof legacyUtils?.q !== "function") throw new Error("页面确认框依赖尚未加载");
-            return legacyUtils.q(position, message, onConfirm);
+            return options ? legacyUtils.q(position, message, onConfirm, undefined, options) : legacyUtils.q(position, message, onConfirm);
         };
         /** @type {(options: Record<string, unknown>) => Promise<unknown> | unknown} */
         this.closePage = (options) => {
@@ -23,10 +23,10 @@ export class DomUiService {
             return legacyUtils.closePage(options);
         };
         this.getOwningLayerIndex = (/** @type {Record<string, unknown>} */ options) => typeof legacyUtils?.getOwningLayerIndex === "function" ? legacyUtils.getOwningLayerIndex(options) : null;
-        /** @type {(image: Element) => unknown} */
-        this.openImageViewer = (image) => {
+        /** @type {(source: string | Element, options?: Record<string, any>) => unknown} */
+        this.openImageViewer = (source, options) => {
             if (typeof openImageViewer !== "function") throw new Error("图片查看器尚未加载");
-            return openImageViewer(image);
+            return openImageViewer(source, "", options);
         };
         /** @type {() => {close?: () => void}} */
         this.loading = () => {

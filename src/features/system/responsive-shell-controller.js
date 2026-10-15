@@ -1,7 +1,9 @@
 // @ts-check
 
+import { OwnedPopover, closeOwnedPopover } from "../../core/owned-popover.js";
 import { k, m, v, y } from "../../core/constants.js";
 import { normalizeStateFlags } from "../../core/state-model.js";
+import { getIcon } from "../../core/icons.js";
 
 export const RESPONSIVE_SHELL_CAPABILITIES = Object.freeze([
     "ListPagePlugin", "ListPageButtonPlugin", "NewVideoPlugin", "BlacklistPlugin",
@@ -31,6 +33,7 @@ export class ResponsiveShellController {
         this.openNewVideo = dependencies.openNewVideo ?? null;
         this._fabGeneration = 0;
         this._animationTimers = new Set();
+        this._commandBarPopovers = new Set();
         this._commandBarOrigins = new Map();
         /** @type {any} */ this.featureMagnetFilterAdapter = null;
         /** @type {any} */ this.featureMagnetHubAdapter = null;
@@ -65,7 +68,7 @@ export class ResponsiveShellController {
                 border-radius: 50%;
                 background: var(--jhs-accent);
                 color: var(--jhs-accent-text-on);
-                font-size: 26px;
+                font-size:var(--jhs-font-size-xl);
                 font-family: inherit;
                 display: flex;
                 align-items: center;
@@ -73,13 +76,13 @@ export class ResponsiveShellController {
                 cursor: pointer;
                 z-index: var(--jhs-z-fab);
                 box-shadow: var(--jhs-shadow-md);
-                transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.3s;
+                transition: transform var(--jhs-motion-base) var(--jhs-ease), box-shadow var(--jhs-motion-base);
                 -webkit-tap-highlight-color: transparent;
                 user-select: none;
                 -webkit-user-select: none;
             }
             html.jhs-fab-mounted {
-                scroll-padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+                scroll-padding-bottom:calc(104px + env(safe-area-inset-bottom, 0px));
             }
             #jhs-fab-safe-area {
                 display: block;
@@ -90,8 +93,9 @@ export class ResponsiveShellController {
                 pointer-events: none;
             }
             #jhs-fab:active {
-                transform: scale(0.9);
+                box-shadow:inset 0 0 0 1px currentColor;
             }
+            #jhs-fab .jhs-icon { width:var(--jhs-icon-lg); height:var(--jhs-icon-lg); }
             #jhs-fab.jhs-fab-open {
                 transform: rotate(135deg);
                 background: var(--jhs-accent-hover);
@@ -103,13 +107,13 @@ export class ResponsiveShellController {
             .jhs-fab-backdrop {
                 position: fixed;
                 inset: 0;
-                background: rgba(0,0,0,0.25);
+                background:var(--jhs-overlay);
                 backdrop-filter: blur(2px);
                 -webkit-backdrop-filter: blur(2px);
                 z-index: var(--jhs-z-fab-backdrop);
                 opacity: 0;
                 pointer-events: none;
-                transition: opacity 0.3s;
+                transition: opacity var(--jhs-motion-base);
             }
             .jhs-fab-backdrop.jhs-fab-backdrop-visible {
                 opacity: 1;
@@ -127,16 +131,15 @@ export class ResponsiveShellController {
                 overflow-y: auto;
                 overflow-x: hidden;
                 overscroll-behavior: contain;
-                scrollbar-width: thin;
                 z-index: var(--jhs-z-fab-menu);
                 display: flex;
                 flex-direction: column;
-                gap: 10px;
+                gap:var(--jhs-space-3);
                 align-items: flex-end;
                 opacity: 0;
                 transform: translateY(16px) scale(0.92);
                 pointer-events: none;
-                transition: opacity 0.25s, transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+                transition: opacity var(--jhs-motion-base), transform var(--jhs-motion-base) var(--jhs-ease);
             }
             .jhs-fab-menu.jhs-fab-menu-open {
                 opacity: 1;
@@ -148,7 +151,7 @@ export class ResponsiveShellController {
             .jhs-fab-group {
                 display: flex;
                 flex-direction: column;
-                gap: 10px;
+                gap:var(--jhs-space-3);
                 align-items: flex-end;
                 flex-shrink: 0;
             }
@@ -159,15 +162,15 @@ export class ResponsiveShellController {
                 background: var(--jhs-border);
                 border-radius: 1px;
                 align-self: flex-end;
-                margin: 2px 0;
+                margin:var(--jhs-space-1) 0;
             }
 
             /* FAB 菜单项 */
             .jhs-fab-menu-item {
                 display: flex;
                 align-items: center;
-                gap: 10px;
-                padding: 10px 16px;
+                gap:var(--jhs-space-3);
+                padding:var(--jhs-space-3) var(--jhs-space-4);
                 background: var(--jhs-surface);
                 border: 1px solid var(--jhs-border);
                 border-radius: 24px;
@@ -175,13 +178,13 @@ export class ResponsiveShellController {
                 cursor: pointer;
                 white-space: nowrap;
                 min-height: 44px;
-                font-size: 14px;
+                font-size:var(--jhs-font-size-md);
                 font-family: inherit;
-                font-weight: 500;
+                font-weight:var(--jhs-font-weight-semibold);
                 color: var(--jhs-text);
                 opacity: 0;
                 transform: translateY(8px) scale(0.92);
-                transition: opacity 0.2s, transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), background 0.15s;
+                transition: opacity var(--jhs-motion-base), transform var(--jhs-motion-base) var(--jhs-ease), background var(--jhs-motion-base);
                 -webkit-tap-highlight-color: transparent;
                 user-select: none;
                 -webkit-user-select: none;
@@ -189,10 +192,10 @@ export class ResponsiveShellController {
             .jhs-fab-menu-item.jhs-fab-item-visible {
                 opacity: 1;
                 transform: translateY(0) scale(1);
-                transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), background 0.15s;
+                transition: opacity var(--jhs-motion-base) ease, transform var(--jhs-motion-base) var(--jhs-ease), background var(--jhs-motion-base);
             }
             .jhs-fab-menu-item:active {
-                transform: scale(0.95);
+                box-shadow:inset 0 0 0 1px currentColor;
                 background: var(--jhs-surface-2);
             }
 
@@ -210,16 +213,16 @@ export class ResponsiveShellController {
                 align-items: center;
                 justify-content: space-between;
                 overflow: visible;
-                gap: var(--jhs-space-3);
+                gap:var(--jhs-space-3);
                 width: 100%;
-                margin: var(--jhs-space-3) 0;
+                margin:var(--jhs-space-3) 0;
             }
             .jhs-commandbar__left, .jhs-commandbar__right,
             .jhs-commandbar__primary, .jhs-commandbar__filters,
             .jhs-commandbar__context, .jhs-commandbar__view {
                 display: flex;
                 align-items: center;
-                gap: var(--jhs-space-1);
+                gap:var(--jhs-space-1);
                 min-width: 0;
                 white-space: nowrap;
             }
@@ -229,7 +232,7 @@ export class ResponsiveShellController {
             .jhs-commandbar__batch, .jhs-commandbar__more, .jhs-sort-control { position:relative; }
             .jhs-commandbar__menu { min-width:220px; }
             .jhs-commandbar__menu .jhs-btn, .jhs-sort-menu .jhs-btn { width:100%; justify-content:flex-start; }
-            .jhs-commandbar__sort-label { color:var(--jhs-text-muted); font-size:14px; }
+            .jhs-commandbar__sort-label { color:var(--jhs-text-muted); font-size:var(--jhs-font-size-md); }
             .jhs-mobile-filter-menu, .jhs-mobile-sort-menu { display:none; min-width:220px; padding:var(--jhs-space-2); border:1px solid var(--jhs-border); border-radius:var(--jhs-radius-md); background:var(--jhs-surface); box-shadow:var(--jhs-shadow-md); }
             .jhs-fab-menu:is(.jhs-fab-filter-open,.jhs-fab-sort-open) > .jhs-fab-group, .jhs-fab-menu:is(.jhs-fab-filter-open,.jhs-fab-sort-open) > .jhs-fab-divider { display:none; }
             .jhs-fab-menu.jhs-fab-filter-open > .jhs-mobile-filter-menu, .jhs-fab-menu.jhs-fab-sort-open > .jhs-mobile-sort-menu { display:grid; gap:var(--jhs-space-1); }
@@ -281,7 +284,7 @@ export class ResponsiveShellController {
         const menu = this.createMenu();
         this.jquery("body").append(menu);
         // 添加 FAB 按钮
-        const fab = this.jquery('<button type="button" id="jhs-fab" class="jhs-btn" aria-label="打开 JHS 工具" aria-controls="jhs-fab-menu" aria-haspopup="menu" aria-expanded="false">＋</button>').appendTo("body");
+        const fab = this.jquery('<button type="button" id="jhs-fab" class="jhs-btn jhs-ui" aria-label="打开 JHS 工具" aria-controls="jhs-fab-menu" aria-haspopup="menu" aria-expanded="false"></button>').append(getIcon("plus")).appendTo("body");
         this.jquery('<div id="jhs-fab-safe-area" aria-hidden="true"></div>').appendTo("body");
         this.bindEvents(fab, backdrop);
     }
@@ -314,7 +317,7 @@ export class ResponsiveShellController {
     collectCommandControls(/** @type {any} */ commandbar) {
         const isCollected = (/** @type {string} */ selector) => {
             const item = this.jquery(selector).first();
-            return !item.length || !!item.closest("#jhs-page-commandbar").length;
+            return !item.length || !!item.closest("#jhs-page-commandbar").length || [...this._commandBarPopovers].some(popover => popover.menu.contains(item[0]));
         };
         const remember = (/** @type {Element} */ element) => {
             let origin = this._commandBarOrigins.get(element);
@@ -345,13 +348,14 @@ export class ResponsiveShellController {
         if (!commandbar.find(".jhs-commandbar__more").length && ![ "#statsBtn", "#blacklistBtn" ].every(isCollected)) {
             commandbar.find(".jhs-commandbar__left").append('<div class="jhs-commandbar__more"><button type="button" class="jhs-btn jhs-btn--secondary jhs-commandbar__menu-toggle" aria-haspopup="menu" aria-controls="jhs-commandbar-more-menu" aria-expanded="false">更多</button><div id="jhs-commandbar-more-menu" class="jhs-popover jhs-commandbar__menu" role="menu"></div></div>');
         }
-        const more = commandbar.find(".jhs-commandbar__more");
+        const menuFor = (/** @type {any} */ container) => this.jquery([...this._commandBarPopovers].find(popover => container[0]?.contains(popover.anchor))?.menu ?? container.find(".jhs-commandbar__menu")[0]);
+        const more = commandbar.find(".jhs-commandbar__more"), moreMenu = menuFor(more);
         [ "#statsBtn", "#blacklistBtn" ].forEach((selector => {
             if (isCollected(selector)) return;
             const item = this.jquery(selector).first();
-            item.length && (remember(item[0]), item.attr({ class: "jhs-btn jhs-btn--ghost", role: "menuitem", tabindex: "-1" }).detach().appendTo(more.find(".jhs-commandbar__menu")));
+            item.length && (remember(item[0]), item.attr({ class: "jhs-btn jhs-btn--ghost", role: "menuitem", tabindex: "-1" }).detach().appendTo(moreMenu));
         }));
-        more.find(".jhs-commandbar__menu").children().length && more.appendTo(left);
+        moreMenu.children().length && more.appendTo(left);
         const quickFilter = this.jquery("#jhs-quick-filter").first();
         quickFilter.length && !quickFilter.closest("#jhs-page-commandbar").length && (remember(quickFilter[0]), left.append(this.jquery('<div class="jhs-commandbar__filters"></div>').append(quickFilter.detach())));
         const contextItem = this.jquery("#addBlacklistBtn").first();
@@ -364,38 +368,26 @@ export class ResponsiveShellController {
         if (!commandbar.find(".jhs-commandbar__batch").length && ![ "#filterAllVideo", "#favoriteAllVideo", "#hasDownAllVideo" ].every(isCollected)) {
             right.append('<div class="jhs-commandbar__batch"><button type="button" class="jhs-btn jhs-btn--secondary jhs-commandbar__menu-toggle" aria-haspopup="menu" aria-controls="jhs-commandbar-batch-menu" aria-expanded="false">批量操作</button><div id="jhs-commandbar-batch-menu" class="jhs-popover jhs-commandbar__menu" role="menu"></div></div>');
         }
-        const batch = commandbar.find(".jhs-commandbar__batch");
+        const batch = commandbar.find(".jhs-commandbar__batch"), batchMenu = menuFor(batch);
         [ "#filterAllVideo", "#favoriteAllVideo", "#hasDownAllVideo" ].forEach((selector => {
             if (isCollected(selector)) return;
             const item = this.jquery(selector).first();
-            item.length && (remember(item[0]), item.attr({ class: "jhs-btn jhs-btn--ghost", role: "menuitem", tabindex: "-1" }).detach().appendTo(batch.find(".jhs-commandbar__menu")));
+            item.length && (remember(item[0]), item.attr({ class: "jhs-btn jhs-btn--ghost", role: "menuitem", tabindex: "-1" }).detach().appendTo(batchMenu));
         }));
-        batch.find(".jhs-commandbar__menu").children().length && batch.appendTo(right);
+        batchMenu.children().length && batch.appendTo(right);
         // 控件从隐藏 parking 或原始位置进入 commandbar；unmount 时统一移入隐藏 parking。
         commandbar.find(".jhs-commandbar__more, .jhs-commandbar__batch").each(((/** @type {number} */ index, /** @type {Element} */ element) => {
             const container = this.jquery(element);
             if (container.data("jhsCommandbarBound")) return;
             container.data("jhsCommandbarBound", !0);
             const toggle = container.find(".jhs-commandbar__menu-toggle"), menu = container.find(".jhs-commandbar__menu");
-            toggle.on("click", ((/** @type {any} */ event) => {
-                event.stopPropagation();
-                const open = !menu.hasClass("is-open");
-                commandbar.find(".jhs-commandbar__menu").removeClass("is-open"), commandbar.find(".jhs-commandbar__menu-toggle").attr("aria-expanded", "false"),
-                menu.toggleClass("is-open", open), toggle.attr("aria-expanded", String(open)), open && menu.children().first().trigger("focus");
-            })), menu.on("keydown", "[role='menuitem']", ((/** @type {any} */ event) => {
-                const items = menu.find("[role='menuitem']"), index = items.index(event.currentTarget);
-                if ("Escape" === event.key) return event.preventDefault(), menu.removeClass("is-open"), toggle.attr("aria-expanded", "false").trigger("focus");
-                if ("Tab" === event.key) return menu.removeClass("is-open"), void toggle.attr("aria-expanded", "false");
-                if (![ "ArrowDown", "ArrowUp", "Home", "End" ].includes(event.key)) return;
-                event.preventDefault();
-                const next = "Home" === event.key ? 0 : "End" === event.key ? items.length - 1 : "ArrowDown" === event.key ? (index + 1) % items.length : (index - 1 + items.length) % items.length;
-                items.eq(next).trigger("focus");
-            })).on("click", "[role='menuitem']", (() => {
-                menu.removeClass("is-open"), toggle.attr("aria-expanded", "false").trigger("focus");
+            const popover = new OwnedPopover(toggle[0], menu[0]);
+            this._commandBarPopovers.add(popover);
+            toggle.on("click.jhsCommandbarMenu", ((/** @type {any} */ event) => {
+                event.preventDefault(); event.stopPropagation();
+                if (popover.opened) popover.close(); else popover.open();
             }));
-        }));
-        this.jquery(this.document).off("click.jhsCommandbar").on("click.jhsCommandbar", ((/** @type {any} */ event) => {
-            this.jquery(event.target).closest(".jhs-commandbar__more, .jhs-commandbar__batch").length || (commandbar.find(".jhs-commandbar__menu").removeClass("is-open"), commandbar.find(".jhs-commandbar__menu-toggle").attr("aria-expanded", "false"));
+            menu.on("click.jhsCommandbarMenu", "[role='menuitem']", () => popover.close(true));
         }));
         // 按钮被搬走后，隐藏宿主导航中的空壳容器，避免 hover 时出现空导航项
         this.jquery(".historyBtnBox").each(((/** @type {number} */ _index, /** @type {HTMLElement} */ element) => {
@@ -431,6 +423,13 @@ export class ResponsiveShellController {
 
     /** 卸载桌面命令栏并把被收拢的控件移入隐藏 parking，避免 compact 下与 FAB 双 Surface 共存。 */
     unmountDesktopCommandBar() {
+        closeOwnedPopover(this.document);
+        for (const popover of this._commandBarPopovers) {
+            popover.close();
+            this.jquery(popover.anchor).off(".jhsCommandbarMenu");
+            this.jquery(popover.menu).off(".jhsCommandbarMenu");
+        }
+        this._commandBarPopovers.clear();
         let parking = this.jquery("#jhs-commandbar-parking");
         if (!parking.length) {
             parking = this.jquery('<div id="jhs-commandbar-parking" hidden></div>').appendTo("body");
@@ -478,12 +477,12 @@ export class ResponsiveShellController {
             const requestedSortMethod = this.getCapability("ListPageButtonPlugin")?.activeSortMethod?.() ?? this.services.settings.snapshot().sortMethod, sortLabels = { default: "默认", rateCount: "评价人数", date: "时间" }, sortMethod = "string" === typeof requestedSortMethod && requestedSortMethod in sortLabels ? /** @type {keyof typeof sortLabels} */ (requestedSortMethod) : "default", sortLabel = sortLabels[sortMethod], activeFilter = quickFilters?.normalize(listPage.activeQuickFilter) ?? "waitCheck",
                 filterOptions = quickFilters ? [ ...quickFilters.primary, ...quickFilters.secondary ].map(((filter, index) => `${index === quickFilters.primary.length ? '<div class="jhs-filter-menu__separator" role="separator"></div>' : ""}<button type="button" role="menuitemradio" class="jhs-btn jhs-btn--ghost jhs-mobile-filter-option" aria-checked="${filter === activeFilter}" tabindex="-1" data-jhs-filter="${filter}">${quickFilters.labels[filter]}</button>`)).join("") : "",
                 sortOptions = Object.entries(sortLabels).map((([value, label]) => `<button type="button" role="menuitemradio" class="jhs-btn jhs-btn--ghost jhs-mobile-sort-option" aria-checked="${value === sortMethod}" tabindex="-1" data-jhs-sort="${value}">${label}</button>`)).join("");
-            items = group((hasListPageButton ? item("check", "开始鉴定") : "") + (hasNewVideo ? item("newVideo", "新作品") : "") + (hasBlacklist ? item("blacklist", "黑名单") : "") + (hasHistory ? item("history", "鉴定记录") : "") + (hasListPageButton ? item("sort", `排序: ${sortLabel}`, 'aria-haspopup="menu" aria-expanded="false"') : "") + (hasListPage ? item("quickFilter", `<span class="jhs-mobile-filter-label">筛选：${quickFilters.labels[activeFilter]}</span>`, 'aria-haspopup="menu" aria-expanded="false"') : "")) + divider + group(item("logger", "运行日志") + (hasSetting ? item("setting", "设置") : "")) + (hasListPage ? `<div class="jhs-mobile-filter-menu" role="menu" aria-label="列表筛选">${filterOptions}</div>` : "") + (hasListPageButton ? `<div class="jhs-mobile-sort-menu" role="menu" aria-label="列表排序">${sortOptions}</div>` : "");
+            items = group((hasListPageButton ? item("check", "开始鉴定") : "") + (hasNewVideo ? item("newVideo", "新作品") : "") + (hasBlacklist ? item("blacklist", "黑名单") : "") + (hasHistory ? item("history", "鉴定记录") : "") + (hasListPageButton ? item("sort", `排序：${sortLabel}`, 'aria-haspopup="menu" aria-expanded="false"') : "") + (hasListPage ? item("quickFilter", `<span class="jhs-mobile-filter-label">筛选：${quickFilters.labels[activeFilter]}</span>`, 'aria-haspopup="menu" aria-expanded="false"') : "")) + divider + group(item("logger", "运行日志") + (hasSetting ? item("setting", "设置") : "")) + (hasListPage ? `<div class="jhs-mobile-filter-menu" role="menu" aria-label="列表筛选">${filterOptions}</div>` : "") + (hasListPageButton ? `<div class="jhs-mobile-sort-menu" role="menu" aria-label="列表排序">${sortOptions}</div>` : "");
         } else if (this.window.isDetailPage) {
             const statusDefs = [ { action: "filter", icon: m, label: "屏蔽", key: "filter" }, { action: "fav", icon: v, label: "收藏", key: "fav" }, { action: "down", icon: y, label: "已下载", key: "down" }, { action: "watch", icon: k, label: "已观看", key: "watch" } ];
             items = group(hasDetailPageButton ? statusDefs.map((definition => item(definition.action, `<span class="jhs-fab-status-dot" data-status-key="${definition.key}"></span>${definition.icon}`, `aria-label="${definition.label}" aria-pressed="false" data-label="${definition.label}"`))).join("") : "") + divider + group((hasHighlightMagnet ? item("magnetFilter", "磁力过滤") : "") + (hasMagnetHub ? item("magnet", "磁力搜索") : "") + (hasDetailPageButton ? item("subtitle", "字幕") : "")) + divider + group(item("logger", "运行日志") + (hasSetting ? item("setting", "设置") : ""));
         } else items = group(item("logger", "运行日志") + (hasSetting ? item("setting", "设置") : ""));
-        return this.jquery(`<div id="jhs-fab-menu" class="jhs-fab-menu" role="menu" aria-hidden="true">${items}</div>`);
+        return this.jquery(`<div id="jhs-fab-menu" class="jhs-fab-menu jhs-ui" role="menu" aria-hidden="true">${items}</div>`);
     }
     /** 刷新详情页菜单的状态指示 */
     async refreshDetailStatus() {
@@ -533,7 +532,7 @@ export class ResponsiveShellController {
                 if (this.window.isListPage) {
                     const requestedSortMethod = this.getCapability("ListPageButtonPlugin")?.activeSortMethod?.() ?? this.services.settings.snapshot().sortMethod, sortLabels = { default: "默认", rateCount: "评价人数", date: "时间" };
                     const sortMethod = "string" === typeof requestedSortMethod && requestedSortMethod in sortLabels ? /** @type {keyof typeof sortLabels} */ (requestedSortMethod) : "default", sortLabel = sortLabels[sortMethod];
-                    menu.find('[data-action="sort"]').text(`排序: ${sortLabel}`);
+                    menu.find('[data-action="sort"]').text(`排序：${sortLabel}`);
                     this.getCapability("ListPagePlugin")?.syncQuickFilterUi?.();
                 }
                 // 刷新详情页状态
@@ -596,7 +595,7 @@ export class ResponsiveShellController {
                 return;
             }
             const sortLabels = /** @type {Record<string, string>} */ ({ default: "默认", rateCount: "评价人数", date: "时间" });
-            menu.find('[data-action="sort"]').text(`排序: ${sortLabels[String(value)] ?? value}`), closeMenu(!0);
+            menu.find('[data-action="sort"]').text(`排序：${sortLabels[String(value)] ?? value}`), closeMenu(!0);
         }));
         // 菜单项点击
         menu.on("click", ".jhs-fab-menu-item", (/** @type {any} */ e) => {

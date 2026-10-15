@@ -1,5 +1,6 @@
 // @ts-check
 
+import { getIcon } from "../../core/icons.js";
 import { escapeHtml } from "../../core/constants.js";
 import { disabledIdForPlugin, parseDisabledPlugins } from "../../core/legacy-plugin-contributions.js";
 import { getPluginCategories } from "./setting-templates.js";
@@ -75,7 +76,7 @@ export async function renderSnapshotPanel(dependencies) {
         "auto-repair": "修复前自动",
         "auto-restore": "恢复前自动"
     };
-    if (0 === e.length) return void $("#snapshot-list").html('<div class="jhs-empty-note">暂无快照，点击上方按钮创建</div>');
+    if (0 === e.length) return void $("#snapshot-list").html(`<div class="jhs-empty-note">${getIcon("inbox")}<span>暂无快照</span></div>`);
     $("#snapshot-list").find(".tabulator").length && $("#snapshot-list").empty();
     const n = createJhsTable(domUi.tableConstructor, "#snapshot-list", {
         pagination: !1,
@@ -94,42 +95,42 @@ export async function renderSnapshotPanel(dependencies) {
                     return a((() => {
                         const t = e.getElement().querySelector(".snap-restore"), a = e.getElement().querySelector(".snap-download"), s = e.getElement().querySelector(".snap-delete");
                         t && t.addEventListener("click", (async (/** @type {MouseEvent} */ e) => {
-                            utils.q(e, `恢复到快照「${escapeHtml(i.name)}」? 当前数据会自动备份。`, (async () => {
+                            utils.q(e, `恢复快照“${escapeHtml(i.name)}”？当前数据将自动备份`, (async () => {
                                 let e = loading();
                                 try {
                                     await storageManager.restoreSnapshot(i.id);
                                 } catch (t) {
                                     try { clog.error(t); } catch { /* preserve the restore error */ }
-                                    try { show.error("恢复失败: " + (t instanceof Error ? t.message : String(t))); } catch { /* preserve the restore error */ }
+                                    try { show.error("快照恢复失败，请重试"); } catch { /* preserve the restore error */ }
                                     return;
                                 } finally { try { e.close(); } catch (t) { try { clog.warn("恢复操作加载层关闭失败", t); } catch { /* committed data wins */ } } }
-                                finishCommittedDataChange(dependencies, "恢复成功, 页面将刷新");
-                            }));
+                                finishCommittedDataChange(dependencies, "已恢复，页面即将刷新");
+                            }), null, { confirmText: "恢复", cancelText: "取消" });
                         })), a && a.addEventListener("click", (async (/** @type {MouseEvent} */ e) => {
                             let t = loading();
                             try {
                                 const e = await storageManager.getSnapshot(i.id);
                                 if (!e) throw new Error("快照不存在");
-                                utils.download(JSON.stringify(e.data), `snapshot_${String(i.name || "snapshot").replace(/[\\/:*?"<>|]/g, "_")}.json`), show.ok("下载成功");
-                            } catch (n) { show.error("下载失败: " + (n instanceof Error ? n.message : String(n))); } finally { t.close(); }
+                                utils.download(JSON.stringify(e.data), `snapshot_${String(i.name || "snapshot").replace(/[\\/:*?"<>|]/g, "_")}.json`), show.ok("已下载快照");
+                            } catch (n) { clog.error("快照下载失败", n), show.error("快照下载失败，请重试"); } finally { t.close(); }
                         })), s && s.addEventListener("click", (async (/** @type {MouseEvent} */ e) => {
-                            utils.q(e, `删除快照「${escapeHtml(i.name)}」?`, (async () => {
+                            utils.q(e, `删除快照“${escapeHtml(i.name)}”？此操作无法撤销`, (async () => {
                                 try { await storageManager.deleteSnapshot(i.id); }
                                 catch (t) {
                                     try { clog.error(t); } catch { /* preserve the deletion error */ }
-                                    try { show.error("删除失败: " + (t instanceof Error ? t.message : String(t))); } catch { /* preserve the deletion error */ }
+                                    try { show.error("快照删除失败，请重试"); } catch { /* preserve the deletion error */ }
                                     return;
                                 }
-                                try { show.ok("已删除"); }
+                                try { show.ok("已删除快照"); }
                                 catch (t) { try { clog.warn("快照已删除，但完成提示失败", t); } catch { /* committed deletion wins */ } }
                                 try { await renderSnapshotPanel(dependencies); }
                                 catch (t) {
                                     try { clog.error("快照已删除，但列表刷新失败", t); } catch { /* committed deletion wins */ }
-                                    try { show.error("快照已删除，请重新打开设置刷新列表"); } catch { /* committed deletion wins */ }
+                                    try { show.error("已删除快照，请重新打开设置"); } catch { /* committed deletion wins */ }
                                 }
-                            }));
+                            }), null, { confirmText: "删除", cancelText: "取消" });
                         }));
-                    })), '<button type="button" class="jhs-btn jhs-btn--primary snap-restore">恢复</button> <button type="button" class="jhs-btn jhs-btn--secondary snap-download">下载</button> <button type="button" class="jhs-btn jhs-btn--danger snap-delete">删除</button>';
+                    })), '<button type="button" class="jhs-btn jhs-btn--secondary snap-restore">恢复</button> <button type="button" class="jhs-btn jhs-btn--secondary snap-download">下载</button> <button type="button" class="jhs-btn jhs-btn--danger snap-delete">删除</button>';
                 }
             }
         ]
@@ -141,6 +142,8 @@ export async function renderSnapshotPanel(dependencies) {
 export function showDiffPreview(e, t, n = null, dialog, dependencies) {
     const { legacyStorage: storageManager, utilities: utils, notifications: show, logger: clog, domUi, window } = dependencies;
     const loading = () => domUi.loading();
+    /** @type {Record<string, string>} */
+    const dataNames = { setting: "设置", car_list: "鉴定记录", favorite_actresses: "收藏演员", blacklist: "黑名单演员", blacklist_car_list: "屏蔽影片", filter_keyword_title: "影片屏蔽词", filter_keyword_review: "评论屏蔽词", highlighted_tags: "高亮标签", data_version: "数据版本" };
     const a = e.summary, i = [];
     for (const [s, o] of Object.entries(e.stores)) {
         if ("unchanged" === o.status) continue;
@@ -157,7 +160,7 @@ export function showDiffPreview(e, t, n = null, dialog, dependencies) {
     if (i.length > 0) {
         s += '<div class="jhs-scroll-frame"><table class="jhs-data-table"><thead><tr><th>数据源</th><th>状态</th><th class="is-center">当前</th><th class="is-center">导入</th><th class="is-center">新增</th><th class="is-center">删除</th><th class="is-center">修改</th></tr></thead><tbody>';
         const o = { added: "新增", removed: "缺失", modified: "变更", unchanged: "无变化" };
-        for (const r of i) s += `<tr><td>${escapeHtml(r.store)}</td><td>${o[/** @type {keyof typeof o} */ (r.status)] || r.status}</td><td class="is-center">${r.oldCount}</td><td class="is-center">${r.newCount}</td><td class="is-center is-success">${r.added || "-"}</td><td class="is-center is-danger">${r.removed || "-"}</td><td class="is-center is-warning">${r.modified || "-"}</td></tr>`;
+        for (const r of i) s += `<tr><td>${escapeHtml(dataNames[r.store] || "其他数据")}</td><td>${o[/** @type {keyof typeof o} */ (r.status)] || r.status}</td><td class="is-center">${r.oldCount}</td><td class="is-center">${r.newCount}</td><td class="is-center is-success">${r.added || "-"}</td><td class="is-center is-danger">${r.removed || "-"}</td><td class="is-center is-warning">${r.modified || "-"}</td></tr>`;
         s += '</tbody></table></div>';
     } else {
         s += '<div class="jhs-empty-note">数据完全一致，无需导入</div>';
@@ -170,7 +173,7 @@ export function showDiffPreview(e, t, n = null, dialog, dependencies) {
         title: "数据差异预览",
         content: s,
         area: utils.getResponsiveArea(["700px", "auto"]),
-        btn: hasChanges ? ["确认导入", "取消"] : ["知道了", "取消"],
+        btn: hasChanges ? ["导入", "取消"] : ["关闭"],
         anim: -1,
         yes: async (/** @type {number} */ s) => {
             if (!hasChanges) return void dialog.close(s);
@@ -181,10 +184,10 @@ export function showDiffPreview(e, t, n = null, dialog, dependencies) {
                 await storageManager.importData(n || t);
             } catch (r) {
                 try { clog.error(r); } catch { /* preserve the import error */ }
-                try { show.error("导入失败: " + (r instanceof Error ? r.message : String(r))); } catch { /* preserve the import error */ }
+                try { show.error("数据导入失败，请检查文件"); } catch { /* preserve the import error */ }
                 return;
             } finally { try { o.close(); } catch (r) { try { clog.warn("导入操作加载层关闭失败", r); } catch { /* committed data wins */ } } }
-            finishCommittedDataChange(dependencies, "导入成功!");
+            finishCommittedDataChange(dependencies, "已导入，页面即将刷新");
         }
     });
 }
@@ -219,7 +222,7 @@ export async function renderPluginMgmtPanel(diagnostics, settings, dependencies)
             if (isCore) {
                 html += '<span class="jhs-badge jhs-badge--neutral">核心</span>';
             } else {
-                html += `<input type="checkbox" class="mini-switch pm-toggle" data-plugin="${escapeHtml(pName)}" ${isDisabled ? "" : "checked"}>`;
+                html += `<input type="checkbox" class="mini-switch pm-toggle" role="switch" data-plugin="${escapeHtml(pName)}" ${isDisabled ? "" : "checked"}>`;
             }
             html += `</div>`;
         }
@@ -256,11 +259,11 @@ export async function renderPluginMgmtPanel(diagnostics, settings, dependencies)
             target.prop("checked", previousEnabled);
             const rollbackList = parseDisabledPlugins(await storageManager.getSetting("disabledPlugins", "[]"));
             renderState(rollbackList);
-            clog.error("插件状态保存失败，已恢复", error), show.error(`插件 "${name}" 状态保存失败，已恢复`);
+            clog.error("功能状态保存失败，已恢复", error), show.error("功能设置保存失败，已恢复");
             return;
         }
         try {
-            show.ok(`插件 "${name}" 已${nextEnabled ? "启用" : "禁用"}，刷新后生效`);
+            show.ok(`功能已${nextEnabled ? "开启" : "关闭"}，刷新后生效`);
         } catch (error) {
             clog.error("插件状态已保存，但通知显示失败", error);
         }
@@ -285,7 +288,7 @@ export async function renderPluginMgmtPanel(diagnostics, settings, dependencies)
         let tHtml = '<table class="jhs-data-table"><tr><th>插件</th><th class="is-center">阶段</th><th class="is-right">耗时(ms)</th><th class="is-center">状态</th></tr>';
         for (const t of sorted) {
             const stateClass = t.status === "disabled" ? "is-muted" : t.elapsed > 500 ? "is-slow" : t.elapsed > 200 ? "is-warning" : "";
-            const statusText = t.status === "disabled" ? "已禁用" : t.status === "error" ? "错误" : t.status === "pending-idle" ? "等待空闲" : t.status === "skipped-mobile" ? "移动端跳过" : "正常";
+            const statusText = t.status === "disabled" ? "已关闭" : t.status === "error" ? "错误" : t.status === "pending-idle" ? "等待空闲" : t.status === "skipped-mobile" ? "移动端跳过" : "正常";
             tHtml += `<tr><td class="${stateClass}">${escapeHtml(t.name)}</td><td class="is-center">${t.startupMode === "idle" ? "空闲" : "即时"}</td><td class="is-right ${stateClass}">${t.elapsed.toFixed(1)}</td><td class="is-center">${statusText}</td></tr>`;
         }
         tHtml += '</table>';
@@ -302,7 +305,7 @@ export async function renderPluginMgmtPanel(diagnostics, settings, dependencies)
         eHtml += '</table>';
         $("#plugin-error-log").html(eHtml);
     } else {
-        $("#plugin-error-log").text("无错误记录");
+        $("#plugin-error-log").text("暂无错误记录");
     }
     const cacheStats = storageManager.getCacheHitStats();
     $("#cache-hit-stats").html(`<div class="jhs-inline-metrics"><span>命中: <strong>${cacheStats.hits}</strong></span><span>未命中: <strong>${cacheStats.misses}</strong></span><span>总计: <strong>${cacheStats.total}</strong></span><span>命中率: <strong>${cacheStats.rate}</strong></span></div>`);
@@ -314,7 +317,7 @@ export async function renderDataHealthPanel(dependencies) {
     const { jquery: $, legacyStorage: storageManager, logger: clog } = dependencies;
     const e = $("#health-data-display");
     if (!e.length) return;
-    e.text("体检中...");
+    e.text("体检中…");
     try {
         const t = await storageManager.inspectDataHealth(), n = t.fixable.reduce(((/** @type {number} */ e, /** @type {HealthIssue} */ t) => e + t.count), 0), a = t.readonly.reduce(((/** @type {number} */ e, /** @type {HealthIssue} */ t) => e + t.count), 0), i = (/** @type {HealthIssue[]} */ t) => t.length ? t.map((e => `<li><strong>${escapeHtml(e.message)}</strong>：${e.count}</li>`)).join("") : "<li>无</li>";
         e.html(`
@@ -322,7 +325,7 @@ export async function renderDataHealthPanel(dependencies) {
                     <div>番号记录：<strong>${t.totals.carList}</strong></div>
                     <div>收藏演员：<strong>${t.totals.favoriteActresses}</strong></div>
                     <div>黑名单演员：<strong>${t.totals.blacklist}</strong></div>
-                    <div>黑名单作品：<strong>${t.totals.blacklistCarList}</strong></div>
+                    <div>屏蔽影片：<strong>${t.totals.blacklistCarList}</strong></div>
                 </div>
                 <div class="jhs-health-summary">体检时间：${escapeHtml(t.checkedAt)}；可修复问题 <strong>${n}</strong> 项，只读问题 <strong>${a}</strong> 项。</div>
                 <div class="jhs-health-columns">
@@ -331,7 +334,7 @@ export async function renderDataHealthPanel(dependencies) {
                 </div>
             `);
     } catch (t) {
-        clog.error(t), e.text("体检失败: " + t);
+        clog.error(t), e.text("数据体检失败，请重试");
     }
 }
 
@@ -342,5 +345,5 @@ export async function repairDataHealthWithBackup(dependencies) {
     const e = JSON.stringify(await storageManager.exportData()), t = `health-backup-${utils.getNowStr("_", "_")}.json`;
     utils.download(e, t);
     const n = await storageManager.repairDataHealth();
-    show.ok(`已修复 ${n.fixedGroups} 组数据问题，修复前备份已下载`), await renderDataHealthPanel(dependencies);
+    show.ok(`已修复 ${n.fixedGroups} 组，备份已下载`), await renderDataHealthPanel(dependencies);
 }

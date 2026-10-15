@@ -1,16 +1,16 @@
 // @ts-check
 
+import { PRODUCT_NAMES } from "../../core/product-names.js";
 import { escapeHtml } from "../../core/constants.js";
 import { decryptCredential, decryptPortableBackup, encryptPortableBackup } from "../../core/credential-crypto.js";
 import { createJhsTable } from "../../ui/table/create-jhs-table.js";
+import { LifecycleScope } from "../../core/lifecycle-scope.js";
 
 /** @typedef {{ name: string, size: number, createTime: string | number, fileId: string }} BackupFile */
 /** @typedef {(diff: any, current: any, imported: any) => void} ShowDiffPreview */
 /** @typedef {any} WebDavHandle */
 /** @typedef {any} DialogHandle */
-/** @typedef {{jquery: (value: any) => any, document: Document, legacyStorage: any, utilities: any, notifications: any, logger: any, domUi: any, window: Window & typeof globalThis}} BackupUiDependencies */
-/** @param {unknown} error */
-const errorMessage = error => error instanceof Error ? error.message : String(error);
+/** @typedef {{jquery: (value: any) => any, document: Document, legacyStorage: any, utilities: any, notifications: any, logger: any, domUi: any, window: Window & typeof globalThis, getScope?: () => Promise<LifecycleScope>}} BackupUiDependencies */
 /** @param {unknown} error */
 function backupErrorDetails(error) {
     const candidate = /** @type {any} */ (error);
@@ -60,36 +60,55 @@ async function resolveWebDavProfile(webdavService, dependencies) {
 export async function importSettingData(showDiffPreviewFn, dependencies) {
     const { document, legacyStorage: storageManager, notifications: show, logger: clog, domUi, window } = dependencies;
     const loading = () => domUi.loading();
+    const pickerScope = new LifecycleScope("backup-file-picker");
     try {
+        const parentScope = await dependencies.getScope?.();
+        if (parentScope?.disposed) return void pickerScope.dispose();
+        const releaseParent = parentScope?.addCleanup(() => pickerScope.dispose());
+        pickerScope.addCleanup(() => releaseParent?.());
         const input = document.createElement("input");
-        input.type = "file", input.accept = ".json";
-        const cleanup = () => input.remove();
+        input.type = "file", input.accept = ".json", input.hidden = true;
+        let timer = 0;
+        const cleanup = () => pickerScope.dispose();
+        let inputRemoved = false;
+        const removeInput = () => { if (!inputRemoved) { inputRemoved = true; input.remove(); } };
+        pickerScope.addCleanup(() => { window.clearTimeout(timer); removeInput(); });
+        pickerScope.listen(input, "cancel", cleanup, { once: true });
+        pickerScope.listen(window, "pagehide", cleanup, { once: true });
+        timer = window.setTimeout(cleanup, 3e5);
         input.onchange = async (/** @type {Event} */ e) => {
             const t = /** @type {HTMLInputElement} */ (e.currentTarget).files?.[0];
             if (!t) return void cleanup();
+            window.clearTimeout(timer); removeInput();
             const n = new window.FileReader;
+            pickerScope.addCleanup(() => { n.onload = null; n.onerror = null; if (n.readyState === 1) n.abort(); });
             n.onload = async (/** @type {ProgressEvent<FileReader>} */ e) => {
-                cleanup();
+                if (pickerScope.disposed) return;
                 try {
                     const t = String((/** @type {FileReader} */ (e.currentTarget)).result || ""), n = JSON.parse(t);
                     if (!n || "object" != typeof n || Array.isArray(n)) throw new Error("文件内容不是有效的数据对象");
                     const a = loading();
+                    const releaseLoading = pickerScope.addCleanup(() => a.close());
                     try {
-                        const e = await storageManager.exportData(), t = await storageManager.diffData(e, n);
-                        a.close(), showDiffPreviewFn(t, n, null);
+                        const e = await storageManager.exportData();
+                        if (pickerScope.disposed) return;
+                        const t = await storageManager.diffData(e, n);
+                        if (pickerScope.disposed) return;
+                        releaseLoading(), showDiffPreviewFn(t, n, null);
                     } catch (i) {
-                        a.close(), clog.error(i), show.error("差异分析失败: " + errorMessage(i));
+                        if (!pickerScope.disposed) { clog.error(i); show.error("导入预览失败，请重试"); }
                     }
                 } catch (t) {
-                    clog.error(t), show.error("导入失败：文件内容不是有效的JSON格式 " + errorMessage(t));
-                }
+                    if (!pickerScope.disposed) { clog.error(t); show.error("导入失败，请检查文件格式"); }
+                } finally { cleanup(); }
             }, n.onerror = () => {
-                cleanup(), show.error("读取文件时出错");
+                if (!pickerScope.disposed) show.error("文件读取失败，请重试");
+                cleanup();
             }, n.readAsText(t);
         }, document.body.appendChild(input), input.click();
-        window.setTimeout(cleanup, 3e5);
     } catch (e) {
-        clog.error(e), show.error("导入数据时出错: " + errorMessage(e));
+        pickerScope.dispose();
+        clog.error(e), show.error("导入失败，请重新选择文件");
     }
 }
 
@@ -104,10 +123,10 @@ export async function backupDataByWebDav(folderName, webdavService, dependencies
     let result = "error", bytes;
     try {
         const t = await measureBackupStage("读取凭据", () => resolveWebDavProfile(webdavService, dependencies), dependencies), n = t.url;
-        if (!n) return void show.error("请填写webDav服务地址并保存后, 再试此功能");
+        if (!n) return void show.error("请填写并保存服务地址");
         const a = t.username;
-        if (!a) return void show.error("请填写webDav用户名并保存后, 再试此功能");
-        if (!t.password) return void show.error("请填写webDav密码并保存后, 再试此功能");
+        if (!a) return void show.error("请填写并保存用户名");
+        if (!t.password) return void show.error("请填写并保存密码");
         const s = utils.getNowStr("_", "_") + ".json";
         const plain = await measureBackupStage("导出数据", async () => JSON.stringify(await storageManager.exportData()), dependencies);
         const encrypted = await measureBackupStage("加密", () => encryptPortableBackup(plain), dependencies);
@@ -116,7 +135,7 @@ export async function backupDataByWebDav(folderName, webdavService, dependencies
         await client.backup(folderName, s, encrypted, logStage);
         result = "success";
     } catch (l) {
-        clog.error("[WebDAV备份失败]", backupErrorDetails(l)), show.error(errorMessage(l));
+        clog.error("[WebDAV备份失败]", backupErrorDetails(l)), show.error("备份失败，请检查连接与授权");
     } finally {
         logStage({ stage: "合计", result, durationMs: window.performance.now() - startedAt, ...(bytes == null ? {} : { bytes }) });
         try { r.close(); }
@@ -126,7 +145,7 @@ export async function backupDataByWebDav(folderName, webdavService, dependencies
         }
     }
     if (result === "success") {
-        try { show.ok("备份完成"); }
+        try { show.ok("已备份数据"); }
         catch (error) { clog.warn("[WebDAV备份] 上传成功，但完成提示失败", backupErrorDetails(error)); }
     }
 }
@@ -137,17 +156,17 @@ export async function backupListBtnByWebDav(folderName, openFileListDialogFn, we
     const { notifications: show, logger: clog, domUi } = dependencies;
     const loading = () => domUi.loading();
     const t = await resolveWebDavProfile(webdavService, dependencies), n = t.url;
-    if (!n) return void show.error("请填写webDav服务地址并保存后, 再试此功能");
+    if (!n) return void show.error("请填写并保存服务地址");
     const a = t.username;
-    if (!a) return void show.error("请填写webDav用户名并保存后, 再试此功能");
-    if (!t.password) return void show.error("请填写webDav密码并保存后, 再试此功能");
+    if (!a) return void show.error("请填写并保存用户名");
+    if (!t.password) return void show.error("请填写并保存密码");
     const s = loading();
     try {
         const i = t.password;
         const e = webdavService.createClient({ url: n, username: a, password: i }), files = await e.getBackupList(folderName);
-        openFileListDialogFn(files, e, "WebDav");
+        openFileListDialogFn(files, e, PRODUCT_NAMES.webdav);
     } catch (o) {
-        clog.error(o), show.error(`发生错误: ${errorMessage(o)}`);
+        clog.error(o), show.error("备份列表加载失败，请重试");
     } finally {
         s.close();
     }
@@ -166,7 +185,7 @@ function openFileListDialogMobile(e, t, n, folderName, showDiffPreviewFn, dialog
     };
     const renderCards = (/** @type {BackupFile[]} */ files) => {
         if (!files || files.length === 0) {
-            return '<div class="jhs-backup-empty">暂无数据</div>';
+            return '<div class="jhs-backup-empty">暂无备份</div>';
         }
         return files.map((file, /** @type {number} */ idx) => `
                 <div class="jhs-backup-card" data-idx="${idx}">
@@ -196,8 +215,8 @@ function openFileListDialogMobile(e, t, n, folderName, showDiffPreviewFn, dialog
                 const file = e[idx];
                 if (!file) return;
                 if (action === "delete") {
-                    dialog.confirm(`是否删除 ${escapeHtml(file.name)} ?`, {
-                        icon: 3, title: "提示", btn: ["确定", "取消"]
+                    dialog.confirm(`删除备份“${escapeHtml(file.name)}”？此操作无法撤销`, {
+                        icon: 3, title: "提示", confirmText: "删除", cancelText: "取消"
                     }, async (/** @type {number} */ confirmIdx) => {
                         dialog.close(confirmIdx);
                         let load = loading();
@@ -205,9 +224,9 @@ function openFileListDialogMobile(e, t, n, folderName, showDiffPreviewFn, dialog
                             await t.deleteFile(file.fileId);
                             e = await t.getBackupList(folderName);
                             container.html(renderCards(e));
-                            dialog.alert("删除成功");
+                            show.ok("已删除备份");
                         } catch (err) {
-                            clog.error(err), show.error(`发生错误: ${errorMessage(err)}`);
+                            clog.error(err), show.error("备份删除失败，请重试");
                         } finally { load.close(); }
                     });
                 } else if (action === "download") {
@@ -216,7 +235,7 @@ function openFileListDialogMobile(e, t, n, folderName, showDiffPreviewFn, dialog
                         const data = await decryptPortableBackup(await t.getFileContent(file.fileId));
                         utils.download(data, file.name);
                     } catch (err) {
-                        clog.error(err), show.error("下载失败: " + err);
+                        clog.error(err), show.error("备份下载失败，请重试");
                     } finally { load.close(); }
                 } else if (action === "import") {
                     let load = loading();
@@ -229,7 +248,7 @@ function openFileListDialogMobile(e, t, n, folderName, showDiffPreviewFn, dialog
                         load.close();
                         showDiffPreviewFn(diff, null, parsed);
                     } catch (err) {
-                        load.close(), clog.error(err), show.error("预览失败: " + errorMessage(err));
+                        load.close(), clog.error(err), show.error("备份预览失败，请检查文件");
                     }
                 }
             });
@@ -257,7 +276,7 @@ export function openFileListDialog(e, t, n, folderName, showDiffPreviewFn, dialo
             const i = createJhsTable(domUi.tableConstructor, tableRoot, {
                 pagination: !1,
                 layout: "fitColumns",
-                placeholder: "暂无数据",
+                placeholder: "暂无备份",
                 virtualDom: !0,
                 data: e,
                 responsiveLayout: "collapse",
@@ -302,19 +321,19 @@ export function openFileListDialog(e, t, n, folderName, showDiffPreviewFn, dialo
                         return s((() => {
                             const a = e.getElement().querySelector(".backup-delete"), s = e.getElement().querySelector(".backup-download"), r = e.getElement().querySelector(".backup-import");
                             a && a.addEventListener("click", ((/** @type {MouseEvent} */ e) => {
-                                dialog.confirm(`是否删除 ${escapeHtml(o.name)} ?`, {
+                                dialog.confirm(`删除备份“${escapeHtml(o.name)}”？此操作无法撤销`, {
                                     icon: 3,
                                     title: "提示",
-                                    btn: [ "确定", "取消" ]
+                                    confirmText: "删除", cancelText: "取消"
                                 }, (async (/** @type {number} */ e) => {
                                     dialog.close(e);
                                     let a = loading();
                                     try {
                                         await t.deleteFile(o.fileId);
                                         let e = await t.getBackupList(folderName);
-                                        i.replaceData(e), dialog.alert("删除成功");
+                                        i.replaceData(e), show.ok("已删除备份");
                                     } catch (s) {
-                                        clog.error(s), show.error(`发生错误: ${errorMessage(s)}`);
+                                        clog.error(s), show.error("备份删除失败，请重试");
                                     } finally {
                                         a.close();
                                     }
@@ -325,7 +344,7 @@ export function openFileListDialog(e, t, n, folderName, showDiffPreviewFn, dialo
                                     const e = await decryptPortableBackup(await t.getFileContent(o.fileId));
                                         utils.download(e, o.name);
                                 } catch (i) {
-                                    clog.error(i), show.error("下载失败: " + i);
+                                    clog.error(i), show.error("备份下载失败，请重试");
                                 } finally {
                                     a.close();
                                 }
@@ -337,10 +356,10 @@ export function openFileListDialog(e, t, n, folderName, showDiffPreviewFn, dialo
                                     const n = JSON.parse(e), i = await storageManager.exportData(), s = await storageManager.diffData(i, n);
                                     a.close(), showDiffPreviewFn(s, null, n);
                                 } catch (i) {
-                                    a.close(), clog.error(i), show.error("预览失败: " + errorMessage(i));
+                                    a.close(), clog.error(i), show.error("备份预览失败，请检查文件");
                                 }
                             }));
-                        })), '\n                                    <button type="button" class="jhs-btn jhs-btn--danger backup-delete">删除</button>\n                                    <button type="button" class="jhs-btn jhs-btn--secondary backup-download">下载</button>\n                                    <button type="button" class="jhs-btn jhs-btn--primary backup-import">导入</button>\n                                ';
+                        })), '\n                                    <button type="button" class="jhs-btn jhs-btn--danger backup-delete">删除</button>\n                                    <button type="button" class="jhs-btn jhs-btn--secondary backup-download">下载</button>\n                                    <button type="button" class="jhs-btn jhs-btn--secondary backup-import">导入</button>\n                                ';
                     }
                 } ]
             });
@@ -354,8 +373,8 @@ export async function exportSettingData(dependencies) {
     const { legacyStorage: storageManager, utilities: utils, notifications: show, logger: clog } = dependencies;
     try {
         const e = JSON.stringify(await storageManager.exportData()), t = `${utils.getNowStr("_", "_")}.json`;
-        utils.download(e, t), show.ok("数据导出成功");
+        utils.download(e, t), show.ok("已导出数据");
     } catch (t) {
-        clog.error(t), show.error("导出数据时出错: " + errorMessage(t));
+        clog.error(t), show.error("数据导出失败，请重试");
     }
 }

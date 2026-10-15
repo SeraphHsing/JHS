@@ -1,11 +1,12 @@
 import { JSDOM } from "jsdom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LifecycleScope } from "../src/core/lifecycle-scope.js";
 import { ScreenshotController } from "../src/features/detail/screenshot-controller.js";
 import { normalizeJavStoreAssetUrl } from "../src/integrations/javstore/parser.js";
 
 function createHarness({ site = "javdb", route = "detail", resolve = vi.fn(async () => null), carNum = "ABC-123" } = {}) {
     const dom = new JSDOM("", { url: "https://javdb.com/v/test-id" });
+    vi.stubGlobal("MutationObserver", dom.window.MutationObserver);
     const gallery = dom.window.document.createElement("div");
     gallery.className = site === "javbus" ? "row" : "preview-images";
     const firstTile = dom.window.document.createElement("a");
@@ -40,17 +41,33 @@ function createHarness({ site = "javdb", route = "detail", resolve = vi.fn(async
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+afterEach(() => vi.unstubAllGlobals());
 
 describe("ScreenshotController", () => {
+    it("ignores errors from replaced images and offers retry for the current image", () => {
+        const {dom,controller,gallery,scope} = createHarness();
+        const container=dom.window.document.createElement('a');gallery.append(container);
+        controller.renderImage(container,'缩略图','https://img.javstore.net/old.jpg');
+        const old=container.querySelector('img');
+        controller.renderImage(container,'缩略图','https://img.javstore.net/current.jpg');
+        old.dispatchEvent(new dom.window.Event('error'));
+        expect(container.querySelector('img').src).toContain('current.jpg');
+        container.querySelector('img').dispatchEvent(new dom.window.Event('error'));
+        expect(container.querySelector('.retry-link').textContent).toBe('重试');
+        expect(container.textContent).toContain('缩略图加载失败');
+        scope.dispose();dom.window.close();
+    });
+
     it("mounts the native JavDB tile and opens the image viewer through the injected UI", async () => {
         const { dom, firstTile, controller, ui } = createHarness({ resolve: vi.fn(async () => [{ url: "https://img.javstore.net/preview.jpg" }]) });
         expect(controller.start()).toBe(true);
         await tick();
         const tile = dom.window.document.querySelector(".screen-container");
+        expect(tile?.tagName).toBe("DIV");
         expect(tile?.nextElementSibling).toBe(firstTile);
         expect(tile?.querySelector("img")?.src).toBe("https://img.javstore.net/preview.jpg");
         tile.querySelector("img").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
-        expect(ui.openImageViewer).toHaveBeenCalledWith(tile);
+        expect(ui.openImageViewer).toHaveBeenCalledWith(tile, { imageKind:"contact-sheet", trigger:tile.querySelector('button'), owner: tile, scope: controller.scope });
     });
 
     it("keeps the JavBus screenshot out of the native gallery and opens its own viewer", async () => {
@@ -70,7 +87,7 @@ describe("ScreenshotController", () => {
         expect(open?.type).toBe("button");
         expect(open?.querySelector("img")?.title).toBe("缩略图");
         open.click();
-        expect(ui.openImageViewer).toHaveBeenCalledWith(tile);
+        expect(ui.openImageViewer).toHaveBeenCalledWith(tile, { imageKind:"contact-sheet", trigger: open, owner: tile, scope: controller.scope });
     });
 
     it("keeps JavBus screenshot fallback links independently clickable", async () => {
@@ -80,7 +97,8 @@ describe("ScreenshotController", () => {
         const tile = dom.window.document.querySelector(".screen-container");
         expect(tile?.tagName).toBe("DIV");
         expect(tile?.querySelector("a.check-link")?.href).toBe("https://javstore.net/search/ABC-123");
-        expect(tile?.querySelector("a.retry-link")?.closest("a.sample-box")).toBeNull();
+        expect(tile?.querySelector("button.retry-link")?.type).toBe("button");
+        expect(tile?.querySelector(".retry-link")?.hasAttribute("href")).toBe(false);
     });
 
     it("cancels an active request and removes owned UI when the setting turns off", async () => {
@@ -105,12 +123,38 @@ describe("ScreenshotController", () => {
         controller.start();
         await tick();
         const tile = dom.window.document.querySelector(".screen-container");
-        expect(tile.textContent).toContain("暂无缩略图结果");
+        expect(tile.textContent).toContain("暂无缩略图");
         expect(tile.querySelector(".check-link")?.href).toBe("https://javstore.net/search/ABC-123");
         tile.querySelector(".retry-link").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
         await tick();
         expect(dom.window.document.querySelectorAll(".screen-container")).toHaveLength(1);
         expect(tile.querySelector("img")?.src).toBe("https://img.javstore.net/retry.jpg");
+    });
+
+    it.each(["javdb", "javbus"])("keeps %s retry feedback and focus in place while rejecting repeated clicks", async (site) => {
+        let finish;
+        const resolve = vi.fn().mockResolvedValueOnce(null).mockImplementationOnce(() => new Promise(done => { finish = done; })).mockRejectedValueOnce(new Error("offline"));
+        const {dom,controller,scope} = createHarness({site,resolve});
+        controller.start(); await tick();
+        const tile = dom.window.document.querySelector(".screen-container"), retry = tile.querySelector(".retry-link");
+        retry.focus(); retry.click(); retry.click();
+        expect(resolve).toHaveBeenCalledTimes(2);
+        expect(tile.getAttribute("aria-busy")).toBe("true");
+        expect(tile.querySelector('[role="status"]').textContent).toBe("正在重试…");
+        expect(tile.querySelector(".retry-link")).toBe(retry);
+        expect(retry.getAttribute("aria-disabled")).toBe("true");
+        expect(dom.window.document.activeElement).toBe(retry);
+        expect(dom.window.location.hash).toBe("");
+        finish([{url:"https://img.javstore.net/retry.jpg"}]); await tick();
+        expect(tile.getAttribute("aria-busy")).toBe("false");
+        expect(dom.window.document.activeElement).toBe(tile.querySelector(".jhs-screenshot-open"));
+        tile.querySelector("img").dispatchEvent(new dom.window.Event("error"));
+        expect(dom.window.document.activeElement).toBe(tile.querySelector(".retry-link"));
+        tile.querySelector(".retry-link").click(); await tick();
+        expect(tile.textContent).toContain("缩略图加载失败");
+        expect(tile.querySelector(".retry-link").getAttribute("aria-disabled")).toBeNull();
+        expect(dom.window.document.activeElement).toBe(tile.querySelector(".retry-link"));
+        scope.dispose(); dom.window.close();
     });
 
     it("does not mount for an ineligible route and disposes all listeners/styles", () => {

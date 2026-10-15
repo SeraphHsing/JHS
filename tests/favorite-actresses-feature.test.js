@@ -38,7 +38,7 @@ describe("Library Feature favorite actresses", () => {
         loaded.controller.start();
         await loaded.controller.highlightActress();
         expect(document.querySelector("#actor").classList.contains("highlighted")).toBe(true);
-        expect(document.querySelector("#actor").getAttribute("title")).toContain("设置-基础配置");
+        expect(document.querySelector("#actor").getAttribute("title")).toContain("已收藏演员，前往设置调整高亮");
 
         loaded.settings.value = { enableFavoriteActresses: "no" };
         loaded.settings.dispatchEvent(new CustomEvent("settings.changed", { detail: { names: ["enableFavoriteActresses"] } }));

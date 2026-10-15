@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
+import { ICON_LICENSE } from "../src/core/icon-license.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcPath = join(repoRoot, "src", "main.js");
@@ -51,7 +52,7 @@ export async function buildUserscript({ outputPaths = [distPath, rootPath], tran
     }]
   });
   const bundledOutput = transformBundle(buildResult.outputFiles[0].text.trimStart().split(/\r?\n/).map((line) => line.trimEnd()).join("\n"));
-  const output = `${metadata}\n\n${bundledOutput}`;
+  const output = `${metadata}\n\n/* ${ICON_LICENSE} */\n\n${bundledOutput}`;
   const outputBytes = Buffer.byteLength(output, "utf8");
 
   for (const outputPath of outputPaths) {

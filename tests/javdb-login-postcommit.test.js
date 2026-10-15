@@ -45,14 +45,17 @@ describe("JavDB login post-commit boundary", () => {
     });
 
     it("keeps the login dialog open when credential persistence really fails", async () => {
-        const { root, dialog, credential, show, busy, getDialogOptions } = installLoginHarness({ credentialFailure: new Error("credential write failed") });
+        const failure = new Error("credential write failed");
+        const { root, dialog, credential, show, busy, logger, getDialogOptions } = installLoginHarness({ credentialFailure: failure });
         const onSuccess = vi.fn();
         openJavDbLoginDialog({ dialog, account: { login: async () => ({ success: true, token: "synthetic-token" }) }, credential, getScope: async () => ({}), onSuccess });
         root.find("#username").val("synthetic-user");
         root.find("#password").val("synthetic-password");
 
         root.find("#loginBtn").trigger("click");
-        await vi.waitFor(() => expect(show.error).toHaveBeenCalledWith("credential write failed"));
+        await vi.waitFor(() => expect(show.error).toHaveBeenCalledWith("登录失败，请稍后重试"));
+        expect(logger.error).toHaveBeenCalledWith("登录异常:", failure);
+        expect(show.error.mock.calls.flat().join(" ")).not.toContain(failure.message);
         expect(dialog.close).not.toHaveBeenCalled();
         expect(onSuccess).not.toHaveBeenCalled();
         expect(busy.close).toHaveBeenCalledOnce();
@@ -60,14 +63,17 @@ describe("JavDB login post-commit boundary", () => {
     });
 
     it("reports a follow-up action failure without relabeling the saved login as failed", async () => {
-        const { root, dialog, credential, show, busy } = installLoginHarness();
-        const onSuccess = vi.fn(async () => { throw new Error("want action failed"); });
+        const { root, dialog, credential, show, busy, logger } = installLoginHarness();
+        const failure = new Error("want action failed");
+        const onSuccess = vi.fn(async () => { throw failure; });
         openJavDbLoginDialog({ dialog, account: { login: async () => ({ success: true, token: "synthetic-token" }) }, credential, getScope: async () => ({}), onSuccess });
         root.find("#username").val("synthetic-user");
         root.find("#password").val("synthetic-password");
 
         root.find("#loginBtn").trigger("click");
-        await vi.waitFor(() => expect(show.error).toHaveBeenCalledWith("登录成功，但后续操作失败，请重试该操作"));
+        await vi.waitFor(() => expect(show.error).toHaveBeenCalledWith("已登录，请重试刚才的操作"));
+        expect(logger.error).toHaveBeenCalledWith("JavDB 登录后续操作失败", failure);
+        expect(show.error.mock.calls.flat().join(" ")).not.toContain(failure.message);
         expect(credential.set).toHaveBeenCalledOnce();
         expect(dialog.close).toHaveBeenCalledWith(7);
         expect(busy.close).toHaveBeenCalledOnce();

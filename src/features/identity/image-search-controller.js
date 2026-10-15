@@ -25,12 +25,12 @@ const DIALOG_CONTENT = `
 <div class="jhs-image-search jhs-ui">
   <div class="jhs-image-search__upload" data-role="upload-area">
     <p>拖拽图片到此处或点击按钮选择图片</p>
-    <p>也可以直接 Ctrl+V 粘贴图片或图片 URL</p>
+    <p>也可以直接 Ctrl+V 粘贴图片或图片链接</p>
     <button type="button" class="jhs-btn" data-action="select-image">选择图片</button>
     <input type="file" accept="image/*" class="jhs-image-search__file" data-role="image-file">
   </div>
   <div data-role="url-input-container">
-    <input type="url" placeholder="粘贴图片 URL 地址..." class="jhs-field" data-role="image-url">
+    <input type="url" placeholder="粘贴图片链接…" class="jhs-field" data-role="image-url">
   </div>
   <section class="jhs-image-search__preview" data-role="preview" hidden>
     <img class="jhs-image-search__preview-image" alt="" data-role="preview-image">
@@ -39,7 +39,7 @@ const DIALOG_CONTENT = `
       <button type="button" class="jhs-btn jhs-btn--secondary" data-action="cancel">取消</button>
     </div>
     <div class="jhs-image-search__results" data-role="results" hidden>
-      <div class="jhs-image-search__results-heading"><span>请选择识图网站：</span><button type="button" class="jhs-btn jhs-btn--ghost" data-action="open-all">全部打开</button></div>
+      <div class="jhs-image-search__results-heading"><span>选择识图网站</span><button type="button" class="jhs-btn jhs-btn--ghost" data-action="open-all">全部打开</button></div>
       <div class="jhs-image-search__targets" data-role="targets"></div>
     </div>
   </section>
@@ -112,7 +112,7 @@ export class ImageSearchController {
         } catch (error) {
             this.finishSession(session);
             this.onError?.(error);
-            this.notifications.error?.(`以图识图弹窗打开失败: ${messageOf(error)}`);
+            this.notifications.error?.("以图识图打开失败，请重试");
             return false;
         }
     }
@@ -159,7 +159,7 @@ export class ImageSearchController {
         on(urlInput, "change", () => {
             const value = urlInput?.value.trim() ?? "";
             if (!value) return;
-            if (!isHttpUrl(value)) return this.notifications.info?.("请输入有效的 HTTP/HTTPS 图片 URL");
+            if (!isHttpUrl(value)) return this.notifications.info?.("请输入有效的图片链接");
             this.setPreview(value, session, false);
         });
         on(action("search"), "click", () => { void this.runSearch(session); });
@@ -266,9 +266,9 @@ export class ImageSearchController {
         session.requestScope = requestScope;
         session.searching = true;
         const searchButton = /** @type {HTMLButtonElement | null} */ (session.root?.querySelector('[data-action="search"]'));
-        if (searchButton) { searchButton.disabled = true; searchButton.setAttribute("aria-busy", "true"); searchButton.textContent = "搜索中..."; }
+        if (searchButton) { searchButton.disabled = true; searchButton.setAttribute("aria-busy", "true"); searchButton.textContent = "搜索中…"; }
         try {
-            if (source.startsWith("data:")) this.notifications.info?.("开始上传图片...");
+            if (source.startsWith("data:")) this.notifications.info?.("正在上传图片…");
             const result = await this.imageSearch.resolve(source, { scope: requestScope });
             if (!this.isCurrent(session) || generation !== session.generation || requestScope.disposed) return;
             const targets = /** @type {HTMLElement | null} */ (session.root?.querySelector('[data-role="targets"]'));
@@ -282,7 +282,7 @@ export class ImageSearchController {
             results.hidden = false;
         } catch (error) {
             if (this.isCurrent(session) && generation === session.generation && !isAbort(error)) {
-                this.notifications.error?.(`搜索失败: ${messageOf(error)}`);
+                this.notifications.error?.("图片搜索失败，请重试");
                 this.onError?.(error);
             }
         } finally {
@@ -393,9 +393,6 @@ function safeExternalUrl(value) {
     if (!["http:", "https:"].includes(url.protocol)) throw new TypeError("以图识图目标必须使用 HTTP/HTTPS URL");
     return url.href;
 }
-
-/** @param {unknown} error */
-function messageOf(error) { return error instanceof Error ? error.message : String(error); }
 
 /** @param {unknown} error */
 function isAbort(error) { return error instanceof DOMException && error.name === "AbortError" || /** @type {any} */ (error)?.code === "ABORTED"; }

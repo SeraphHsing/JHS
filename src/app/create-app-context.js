@@ -62,6 +62,7 @@ export function createAppContext(runtime) {
     const storage = new StorageService(storagePort);
     const cache = new CacheService({ diagnostics, storage });
     const dialog = new DialogService(dialogPort);
+    runtime.legacyUtils?.setDialogService?.(dialog);
     const styles = new StyleRegistry(stylePort);
     const settingsRegistry = new SettingsRegistry();
     registerDefaultSettings(settingsRegistry);
@@ -87,7 +88,7 @@ export function createAppContext(runtime) {
     const domUi = new DomUiService(
         /** @type {any} */ (globalThis).jQuery ?? /** @type {any} */ (globalThis).$,
         runtime.legacyUtils,
-        (image) => /** @type {any} */ (globalThis).showImageViewer?.(image),
+        (image, alt, options) => /** @type {any} */ (globalThis).showImageViewer?.(image, alt, options),
         () => /** @type {any} */ (globalThis).loading?.(),
         (config) => {
             const factory = /** @type {any} */ (globalThis).ImageHoverPreview;

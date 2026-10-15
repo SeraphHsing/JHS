@@ -90,7 +90,8 @@ describe("settings backup post-commit boundary", () => {
 
         await options.yes(7);
 
-        expect(deps.notifications.error).toHaveBeenCalledWith("导入失败: synthetic write failure");
+        expect(deps.notifications.error).toHaveBeenCalledWith("数据导入失败，请检查文件");
+        expect(deps.logger.error).toHaveBeenCalledWith(expect.objectContaining({ message: "synthetic write failure" }));
         expect(deps.timers).toHaveLength(0);
         expect(deps.close).toHaveBeenCalledOnce();
     });

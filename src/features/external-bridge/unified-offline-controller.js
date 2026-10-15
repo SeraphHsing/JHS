@@ -1,5 +1,7 @@
 // @ts-check
 
+import { PRODUCT_NAMES } from "../../core/product-names.js";
+
 import { parseBooleanSetting } from "../../core/feature-helpers.js";
 import { readListItem } from "../../core/list-item-reader.js";
 import { resolveMovieContext } from "../../core/movie-context.js";
@@ -107,7 +109,7 @@ export class UnifiedOfflineController {
     registerProviders() {
         const credential = this.pan123Credential;
         this.registry.register({
-            id: "123", name: "123 云盘", capabilities: ["magnet"], retryPolicy: { automaticAttempts: 0 },
+            id: "123", name: PRODUCT_NAMES.pan123, capabilities: ["magnet"], retryPolicy: { automaticAttempts: 0 },
             isEnabled: () => parseBooleanSetting(this.getSetting("enable123Offline", true), false),
             getAvailability: async () => await credential.getStoredToken()
                 ? { available: true, authState: "ready", reason: "授权已同步" }
@@ -122,7 +124,7 @@ export class UnifiedOfflineController {
             openUrl: () => this.offline.getIntegrationHomeUrl("pan123"),
         });
         this.registry.register({
-            id: "115", name: "115", capabilities: ["magnet", "ed2k"], retryPolicy: { automaticAttempts: 0 },
+            id: "115", name: PRODUCT_NAMES.one115, capabilities: ["magnet", "ed2k"], retryPolicy: { automaticAttempts: 0 },
             isEnabled: () => parseBooleanSetting(this.getSetting("enable115Offline", false), false),
             getAvailability: async () => ({ available: true, authState: "unknown", reason: "提交时确认登录状态" }),
             submit: (/** @type {string} */ resource, /** @type {any} */ _info, /** @type {{isActive?: () => boolean}} */ options = {}) => {
@@ -163,7 +165,7 @@ export class UnifiedOfflineController {
         link.href = url;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
-        link.textContent = "登录 115";
+        link.textContent = `登录 ${PRODUCT_NAMES.one115}`;
         link.title = url;
         button.insertAdjacentElement("afterend", link);
         this._loginLinks.set(button, link);
@@ -319,7 +321,7 @@ export class UnifiedOfflineController {
             let candidates = await this.registry.getCandidates(resource, { force: Boolean(options.forceAvailabilityRefresh) });
             if (!candidates.length && !options.forceAvailabilityRefresh && active()) candidates = await this.registry.getCandidates(resource, { force: true });
             if (!candidates.length) {
-                this.notifications.error(`无法离线：${this.registry.getUnavailableReason() || "没有已启用且支持该资源的离线服务，请检查授权与设置"}`);
+                this.notifications.error("离线不可用，请检查授权与设置");
                 return;
             }
             if (!active()) return;
@@ -332,7 +334,7 @@ export class UnifiedOfflineController {
             if (!active()) return;
             info = this.getVideoInfo(button, context);
             if (!info) {
-                this.notifications.error("无法确定影片身份，未执行离线操作");
+                this.notifications.error("未识别影片，未提交离线任务");
                 return;
             }
             const detailRoot = trigger || null;
@@ -386,18 +388,18 @@ export class UnifiedOfflineController {
                 return;
             }
             if (result === "already-submitted") {
-                this.notifications.info("该资源最近已提交，请勿重复操作；如需重试请从离线历史发起");
+                this.notifications.info("资源已提交，重试请前往离线历史");
                 return;
             }
             if (result === "submission-unconfirmed") {
-                this.notifications.info("该资源已有未确认的提交，请检查云盘任务后再决定是否重试");
+                this.notifications.info("提交结果待确认，请检查云盘任务");
                 return;
             }
             if (!result) return;
             if (active()) {
                 button.text("已提交");
                 if (!localHistoryFailed) this.notifications.ok(`${selected.provider.name} 离线任务已创建`);
-                this.ui.confirm({ clientX: /** @type {any} */ (event)?.clientX ?? 0, clientY: /** @type {any} */ (event)?.clientY ?? 0 }, "是否将该作品标记为已下载？", () => { void this.markDownloadedAndClose(info, closeContext); });
+                this.ui.confirm({ clientX: /** @type {any} */ (event)?.clientX ?? 0, clientY: /** @type {any} */ (event)?.clientY ?? 0 }, "将此影片标记为已下载？", () => { void this.markDownloadedAndClose(info, closeContext); }, { confirmText: "标记已下载" });
             }
         } catch (error) {
             if (submitted) {
@@ -414,9 +416,10 @@ export class UnifiedOfflineController {
             const errorRecord = /** @type {{code?:string,message?:string}} */ (error);
             const code = errorRecord?.code || (error === "TOKEN_EXPIRED" ? "TOKEN_EXPIRED" : "SUBMIT_FAILED"), message = errorRecord?.message || String(error);
             if (code === "SUBMIT_CANCELLED") return;
-            if (code === "SERVICE_DISABLED") { this.notifications.error(message); return; }
+            this.diagnostics?.recordError?.({ source: "offline-submit", featureId: "external-bridge", message, error });
+            if (code === "SERVICE_DISABLED") { this.notifications.error("离线服务已关闭"); return; }
             if (selected) {
-                if (["AUTH_REQUIRED", "LOGIN_REQUIRED", "TOKEN_EXPIRED", "TOKEN_MISSING"].includes(code)) this.registry.updateAvailability(selected.provider.id, { available: false, authState: selected.provider.id === "115" ? "login-required" : "token-missing", reason: message });
+                if (["AUTH_REQUIRED", "LOGIN_REQUIRED", "TOKEN_EXPIRED", "TOKEN_MISSING"].includes(code)) this.registry.updateAvailability(selected.provider.id, { available: false, authState: selected.provider.id === "115" ? "login-required" : "token-missing", reason: "授权已失效，请重新登录" });
                 try {
                     await this.state.appendOfflineHistory({ providerId: selected.provider.id, providerName: selected.provider.name, resource, resourceType: /^ed2k:/i.test(resource) ? "ed2k" : "magnet", carNum: info?.carNum, status: "failed", errorCode: code, errorMessage: message, retryOf });
                 } catch (historyError) {
@@ -426,7 +429,7 @@ export class UnifiedOfflineController {
             const loginUrl = selected?.provider.id === "115" && ["AUTH_REQUIRED", "LOGIN_REQUIRED", "TOKEN_EXPIRED", "TOKEN_MISSING"].includes(code)
                 && parseBooleanSetting(this.getSetting("enable115LoginRedirect", false), false) ? this.get115LoginUrl() : null;
             if (loginUrl) this.show115LoginLink(trigger, loginUrl);
-            this.notifications.error(`${selected?.provider.name || ""} 离线失败：${message}${loginUrl ? `；登录地址：${loginUrl}` : ""}`);
+            this.notifications.error(loginUrl ? "离线失败，请登录后重试" : "离线提交失败，请稍后重试");
         } finally {
             this._inFlightResources.delete(resourceKey);
             if (submitted && !this.scope.disposed) {

@@ -96,10 +96,11 @@ describe("desktop quick setting full-settings button", () => {
         vi.unstubAllGlobals();
     });
 
-    it("opens full settings from the visible mini quick host and only clears that host", async () => {
+    it("opens full settings from the visible mini quick host and retains the reusable binding", async () => {
         const { jq, plugin, openSettingDialog } = await createHarness({ useMini: true });
         jq(".mini-setting-box").trigger("mouseover");
         await flush();
+        await Promise.all([...plugin._desktopQuickSurfaces.values()].map(surface => surface.loading));
 
         const mini = jq(".mini-setting-box .mini-simple-setting");
         const normal = jq(".setting-box .simple-setting");
@@ -109,18 +110,20 @@ describe("desktop quick setting full-settings button", () => {
 
         mini.find("#moreBtn").trigger("click");
         await flush();
+        await Promise.all([...plugin._desktopQuickSurfaces.values()].map(surface => surface.loading));
 
         expect(openSettingDialog).toHaveBeenCalledTimes(1);
         expect(openSettingDialog).toHaveBeenCalledWith("base-panel");
-        expect(mini.data("jhsQuickSettingBinding")).toBeFalsy();
+        expect(mini.data("jhsQuickSettingBinding")).toBeTruthy();
         expect(mini.css("display")).toBe("none");
         expect(normal.data("jhsQuickSettingBinding")).toBeFalsy();
     });
 
-    it("opens full settings from the visible normal quick host and only clears that host", async () => {
+    it("opens full settings from the visible normal quick host and retains the reusable binding", async () => {
         const { jq, plugin, openSettingDialog } = await createHarness({ useMini: false });
         jq(".setting-box").trigger("mouseover");
         await flush();
+        await Promise.all([...plugin._desktopQuickSurfaces.values()].map(surface => surface.loading));
 
         const normal = jq(".setting-box .simple-setting");
         const mini = jq(".mini-setting-box .mini-simple-setting");
@@ -129,10 +132,11 @@ describe("desktop quick setting full-settings button", () => {
 
         normal.find("#moreBtn").trigger("click");
         await flush();
+        await Promise.all([...plugin._desktopQuickSurfaces.values()].map(surface => surface.loading));
 
         expect(openSettingDialog).toHaveBeenCalledTimes(1);
         expect(openSettingDialog).toHaveBeenCalledWith("base-panel");
-        expect(normal.data("jhsQuickSettingBinding")).toBeFalsy();
+        expect(normal.data("jhsQuickSettingBinding")).toBeTruthy();
         expect(normal.css("display")).toBe("none");
         expect(mini.data("jhsQuickSettingBinding")).toBeFalsy();
     });

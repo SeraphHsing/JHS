@@ -20,6 +20,23 @@ function createRuntime(initial = {}) {
 }
 
 describe("trusted local origin runtime synchronization", () => {
+    it("preserves viewer ownership, sequence and initial index through the real composition root", () => {
+        const { runtime } = createRuntime(), context = createAppContext(runtime);
+        const open = vi.fn(); vi.stubGlobal("showImageViewer", open);
+        const source = document.createElement("img"), trigger = document.createElement("button");
+        const options = { owner:trigger, trigger, scope:context.rootScope, images:[{url:"https://example.test/full.jpg",alt:"全图"}], initialViewIndex:0 };
+        context.services.domUi.openImageViewer(source, options);
+        expect(open).toHaveBeenCalledExactlyOnceWith(source, "", options);
+        context.rootScope.dispose(); vi.unstubAllGlobals();
+    });
+    it("injects the shared DialogService into supporting utility runtimes", () => {
+        const { runtime } = createRuntime();
+        runtime.legacyUtils = { setDialogService: vi.fn() };
+        const context = createAppContext(runtime);
+        expect(runtime.legacyUtils.setDialogService).toHaveBeenCalledExactlyOnceWith(context.services.dialog);
+        context.rootScope.dispose();
+    });
+
     it("routes resource settings through the coordinated SettingsService writer", async () => {
         const { runtime } = createRuntime();
         const context = createAppContext(runtime);

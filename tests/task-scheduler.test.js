@@ -291,12 +291,15 @@ describe("task scheduler state machine", () => {
     it("still reports a failed manual actress scan without broadcasting success", async () => {
         const harness = createHarness();
         harness.plugin.javDbUrl = "https://javdb.com";
-        harness.plugin.featureNewVideoScanController = { scanActress: vi.fn(async () => { throw new Error("write failed"); }) };
+        const failure = new Error("write failed");
+        harness.plugin.featureNewVideoScanController = { scanActress: vi.fn(async () => { throw failure; }) };
 
         await harness.plugin.checkOneNewVideo({ starId: "actor-1", name: "Actor One" });
 
-        expect(harness.$("#checkNewVideoMsg").text()).toContain("发生错误");
+        expect(harness.$("#checkNewVideoMsg").text()).toBe("演员信息检测失败，请重试");
         expect(harness.plugin.notifications.error).toHaveBeenCalledOnce();
+        expect(harness.plugin.logger.error).toHaveBeenCalledWith("检测屏蔽演员信息, 发生错误:", expect.any(String), failure);
+        expect(harness.plugin.notifications.error.mock.calls.flat().join(" ")).not.toContain(failure.message);
         expect(harness.jhsEventBus.emit).not.toHaveBeenCalledWith("new-video-changed", expect.anything());
     });
 

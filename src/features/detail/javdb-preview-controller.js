@@ -1,4 +1,6 @@
 // @ts-check
+import { MediaPreviewSession, waitForPreviewReady } from "../../core/media-preview-session.js";
+import { invalidateDmmPreview } from "../../services/preview-service.js";
 
 import { createStateActions } from "../../ui/detail/state-actions.js";
 
@@ -107,7 +109,12 @@ export class JavDbPreviewController {
         trigger.off("click.jhsVideo").on("click.jhsVideo", openVideo);
         this.lifecycleScope.addCleanup((() => trigger.off("click.jhsVideo", openVideo)));
         const url = window.location.href;
-        (url.includes("gallery-1") || url.includes("gallery-2")) && openVideo(), url.includes("autoPlay=1") && trigger.length > 0 && trigger[0].click();
+        (url.includes("gallery-1") || url.includes("gallery-2")) && openVideo(), url.includes("autoPlay=1") && this.consumePreviewIntent(trigger[0]);
+    }
+    /** @param {HTMLElement | undefined} trigger */
+    consumePreviewIntent(trigger) {
+        if (this._previewIntentConsumed || !trigger || !window.location.href.includes("autoPlay=1")) return;
+        this._previewIntentConsumed = true; trigger.scrollIntoView?.({block:"center"}); trigger.focus?.(); trigger.click();
     }
     /** 只销毁 JHS DMM 播放器并把控制权交回宿主原生预览（总开关仍开启时保留入口）。 */
     unmountDmmPlayer() {
@@ -164,6 +171,7 @@ export class JavDbPreviewController {
             trigger.append($('<img class="video-cover jhs-layout-8cf76fd7" alt="">').attr("src", cover || ""));
             $(".preview-images").first().prepend(trigger);
             trigger.on("click.jhsVideo", () => this.openDmmDialog());
+            this.consumePreviewIntent(trigger[0]);
         } catch (error) {
             clog.error("预加载 DMM 失败:", error);
         }
@@ -254,23 +262,8 @@ export class JavDbPreviewController {
     /** 销毁 JHS 播放器并把播放权完整交回 JavDB。 */
     /** Wait for decodable media without treating a paused player as loaded. @param {HTMLVideoElement} video */
     waitForDmmReady(video) {
-        const signal = this.previewSession?.scope.signal;
-        if (signal?.aborted || video.error) return Promise.resolve(false);
-        if (video.readyState >= 3) return Promise.resolve(true);
-        return new Promise(resolve => {
-            const finish = (/** @type {boolean} */ ready) => {
-                clearTimeout(timer);
-                video.removeEventListener("canplay", loaded);
-                video.removeEventListener("error", failed);
-                signal?.removeEventListener("abort", failed);
-                resolve(ready);
-            };
-            const loaded = () => finish(true), failed = () => finish(false);
-            const timer = setTimeout(failed, 10000);
-            video.addEventListener("canplay", loaded, { once: true });
-            video.addEventListener("error", failed, { once: true });
-            signal?.addEventListener("abort", failed, { once: true });
-        });
+        const scope = this.previewSession?.scope;
+        return scope ? waitForPreviewReady(video,scope,5000) : Promise.resolve(false);
     }
     /** @param {JQueryHandle} $nativeVideo @param {HTMLVideoElement | undefined} nativeVideo @param {boolean} [notify] */
     async restoreNativePlayer($nativeVideo, nativeVideo, notify = !1, shouldPlay = !0) {
@@ -284,14 +277,15 @@ export class JavDbPreviewController {
             notify
         });
     }
+    /** @returns {Promise<void>} */
     async handleVideo(/** @type {HTMLElement | null} */ ownedHost = null, /** @type {number | null} */ dialogId = null) {
         const $nativeVideo = $(".fancybox-content #preview-video");
         const host = ownedHost || $nativeVideo[0]?.closest(".fancybox-content");
         if (!host || !isPreviewEnabled(this.getRuntimeService("settings").snapshot()) || getComputedStyle(host).display === "none") return;
         if (this.previewSession?.host !== host) {
             this.disposePreviewSession();
-            const scope = new LifecycleScope("javdb-preview");
-            this.previewSession = { host, native: $nativeVideo[0] || null, scope, dialogId };
+            const session = new MediaPreviewSession(), scope = session.scope;
+            this.previewSession = Object.assign(session, {host, native:$nativeVideo[0] || null, dialogId});
             scope.observe(document.body, () => { if (this.previewSession?.host === host && !this.isSessionOpen(this.previewSession)) this.disposePreviewSession(); }, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "aria-hidden"] });
         }
         const session = this.previewSession;
@@ -323,6 +317,10 @@ export class JavDbPreviewController {
                 void settings.set("videoMuted", dmmVideo.muted).catch((/** @type {unknown} */ error) => clog.error("保存视频静音设置失败", error));
             })), $dmmVideo.attr("src", source), dmmVideo.load(), this.seekVideo(dmmVideo, currentTime), $dmmVideo.addClass("is-active");
             const ready = await this.waitForDmmReady(dmmVideo);
+            if (!ready && alive() && dmmVideo.error && !session.cacheRefreshed) {
+                session.cacheRefreshed=true; invalidateDmmPreview(this.getPageInfo().carNum,this.getRuntimeService("storage")); this.dmmPreviewPromise=null; session.generation=null;
+                return this.handleVideo(ownedHost,dialogId);
+            }
             if (!alive()) { dmmVideo.pause(); return; }
             dmmPlayed = ready && (!shouldPlay || await safePlay(dmmVideo, {
                 context: "JavDB 高画质预览",
@@ -349,23 +347,27 @@ export class JavDbPreviewController {
         const $actions = $("<div></div>").addClass("jhs-toolbar");
         const hasDetailActions = !!this.getOptionalDependency("DetailPageButtonPlugin");
         if (hasDetailActions) $actions.append(createStateActions({ actions: ["blocked", "favorite"], ids: { blocked: "video-filterBtn", favorite: "video-favoriteBtn" } }));
-        $actions.append('<button type="button" class="jhs-btn jhs-btn--secondary" id="speed-btn">快进</button>');
+        $actions.append('<button type="button" class="jhs-btn jhs-btn--secondary" id="speed-btn">快进 10 秒</button>');
         if (!alive()) return;
         $toolbar.append($actions); $host.append($toolbar);
         $toolbar.off("click.jhsVideo").on("click.jhsVideo", ".jhs-video-quality-btn", (async (/** @type {MouseEvent} */ event) => {
             const $button = $(event.currentTarget);
             if ($button.hasClass("active")) return;
+            const switchRevision = ++session.revision;
+            const switchAlive = () => alive() && switchRevision === session.revision;
             try {
-                if (!dmmVideo?.isConnected || !alive()) return;
+                if (!dmmVideo?.isConnected || !switchAlive()) return;
                 const currentTime = dmmVideo.currentTime, previousSource = $dmmVideo.attr("src"), shouldPlay = !dmmVideo.paused;
-                $dmmVideo.attr("src", $button.data("video-src")), dmmVideo.load(), this.seekVideo(dmmVideo, currentTime);
+                $dmmVideo.attr("src", $button.data("video-src")), dmmVideo.load();
+                this.seekVideo(dmmVideo, currentTime);
                 const ready = await this.waitForDmmReady(dmmVideo);
-                if (!alive()) return;
+                if (!switchAlive()) return;
                 const played = ready && (!shouldPlay || await safePlay(dmmVideo, {
                     context: "JavDB 画质切换",
                     notify: !1
                 }));
-                if (!alive()) return;
+                if (!switchAlive()) return;
+                if (!shouldPlay) dmmVideo.pause();
                 if (played) $toolbar.find(".jhs-video-quality-btn").removeClass("active").attr("aria-pressed", "false"),
                 $button.addClass("active").attr("aria-pressed", "true"); else {
                     previousSource && ($dmmVideo.attr("src", previousSource), dmmVideo.load(), dmmVideo.currentTime = currentTime);
@@ -373,7 +375,8 @@ export class JavDbPreviewController {
                     context: "JavDB 画质切换回退",
                     notify: !1
                     }));
-                    if (!alive()) return;
+                    if (!switchAlive()) return;
+                    if (restored && !shouldPlay) dmmVideo.pause();
                     restored || await this.restoreNativePlayer($nativeVideo, nativeVideo, !0, shouldPlay);
                 }
             } catch (playbackError) {
@@ -383,8 +386,7 @@ export class JavDbPreviewController {
             const current = $host.find("#jhs-preview-video.is-active")[0] || nativeVideo;
             if (current?.isConnected && this.isSessionOpen(session)) this.seekVideo(current, current.currentTime + 10);
         })),
-        $toolbar.off("contextmenu.jhsVideo").on("contextmenu.jhsVideo", "#speed-btn", ((/** @type {MouseEvent} */ event) => (event.preventDefault(),
-        this.getOptionalDependency("DetailPageButtonPlugin")?.filterOne?.(event)))),
+        $toolbar.off("contextmenu.jhsVideo"),
         $("#video-filterBtn").off("click.jhsVideo").on("click.jhsVideo", ((/** @type {MouseEvent} */ event) => this.getOptionalDependency("DetailPageButtonPlugin")?.filterOne?.(event))),
         $("#video-favoriteBtn").off("click.jhsVideo").on("click.jhsVideo", ((/** @type {MouseEvent} */ event) => this.getOptionalDependency("DetailPageButtonPlugin")?.favoriteOne?.(event)));
         const detail = this.getOptionalDependency("DetailPageButtonPlugin"), controller = detail?.getDetailStateController?.();

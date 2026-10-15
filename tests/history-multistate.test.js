@@ -34,6 +34,132 @@ async function openAndSubmit(state, next) {
 }
 
 describe("History multi-state editor", () => {
+    it("ignores events and queries from a table destroyed by a view switch", async () => {
+        const { plugin, $, dom } = loadHistory(), handlers = new Map();
+        plugin.tableObj = null;
+        plugin.historyRoot = $('<div><div id="table-container"></div></div>').appendTo("body");
+        let tableOptions;
+        dom.window.Tabulator = class {
+            constructor(_target, options) { tableOptions = options; }
+            on(name, handler) { handlers.set(name, handler); }
+            destroy = vi.fn();
+            deselectRow = vi.fn();
+            getRows = vi.fn(() => []);
+        };
+        await plugin.showHistoryView("state");
+        const oldTable = plugin.tableObj;
+        plugin.historyRepository.offline.mockResolvedValue([]);
+        await plugin.showHistoryView("offline");
+        expect(oldTable.destroy).toHaveBeenCalledOnce();
+        for (const name of ["renderComplete", "dataProcessing", "dataProcessed", "rowSelected", "rowDeselected", "rowSelectionChanged", "rowDblClick"]) {
+            expect(() => handlers.get(name)()).not.toThrow();
+        }
+        await expect(tableOptions.ajaxRequestFunc(null, null, { page: 1, size: 50, sort: [] })).resolves.toMatchObject({ dataList: [], totalCount: 0 });
+        expect(plugin.historyRepository.list).not.toHaveBeenCalled();
+        expect(oldTable.getRows).not.toHaveBeenCalled();
+        expect(plugin.historySelectionSyncing).toBe(false);
+        expect(plugin.historyRoot.text()).toBe("暂无离线任务");
+    });
+
+    it("keeps the reopened history instance when an earlier end callback repeats", async () => {
+        const { plugin, $, layer } = loadHistory();
+        plugin.tableObj = null;
+        plugin.loadTableData = vi.fn(async () => {});
+        layer.open.mockImplementation(() => layer.open.mock.calls.length);
+        plugin.openHistory();
+        const first = layer.open.mock.calls[0][0], firstRoot = $('<div></div>').append(first.content).appendTo("body");
+        await first.success(firstRoot);
+        first.end(); firstRoot.remove();
+        plugin.openHistory();
+        const second = layer.open.mock.calls[1][0], secondRoot = $('<div></div>').append(second.content).appendTo("body");
+        await second.success(secondRoot);
+        first.end();
+        expect(plugin.dialogId).toBe(2);
+        expect(plugin.historyRoot[0]).toBe(secondRoot[0]);
+        second.end(); secondRoot.remove();
+        expect(plugin.historyRoot).toBeNull();
+    });
+
+    it.each(["switch", "reopen", "dispose"])("drops a pending state query after %s", async action => {
+        const { plugin, $ } = loadHistory();
+        let finish;
+        plugin.tableObj = null;
+        plugin.historyFilteredCount = 42;
+        plugin.historyRoot = $('<div><select id="dataType"><option value="all">原筛选</option></select><div id="table-container"></div></div>').appendTo("body");
+        plugin.historyRepository.list.mockImplementation(() => new Promise(resolve => finish = resolve));
+        const loading = plugin.getDataList(1, 50, []);
+        if (action === "switch") {
+            plugin.historyRepository.offline.mockResolvedValue([]);
+            await plugin.showHistoryView("offline");
+        } else if (action === "reopen") {
+            plugin.historyRoot.remove();
+            plugin.historyRoot = $('<div><select id="dataType"><option value="all">新筛选</option></select><div id="table-container">新弹窗</div></div>').appendTo("body");
+        } else plugin.dispose();
+        finish([{ carNum: "ABC-1", stateFlags: { favorite: true } }]);
+        await expect(loading).resolves.toMatchObject({ dataList: [], totalCount: 0 });
+        expect(plugin.historyFilteredCount).toBe(42);
+        if (action === "switch") expect(plugin.historyRoot.find("#table-container").text()).toBe("暂无离线任务");
+        if (action === "reopen") expect(plugin.historyRoot.find("option").text()).toBe("新筛选");
+    });
+
+    it("keeps the latest view when an earlier activity request finishes last", async () => {
+        const { plugin, $ } = loadHistory();
+        let finishActivity;
+        plugin.tableObj = null;
+        plugin.historyRoot = $('<div><div id="table-container"></div></div>').appendTo("body");
+        plugin.historyRepository.activity.mockImplementation(() => new Promise(resolve => finishActivity = resolve));
+        plugin.historyRepository.offline.mockResolvedValue([]);
+        const loading = plugin.showHistoryView("activity");
+        await plugin.showHistoryView("offline");
+        expect(plugin.historyRoot.text()).toBe("暂无离线任务");
+        finishActivity({ entries: [] });
+        await loading;
+        expect(plugin.historyRoot.text()).toBe("暂无离线任务");
+    });
+
+    it.each(["activity", "offline"])("drops a pending %s result after close and reopen", async view => {
+        const { plugin, $ } = loadHistory();
+        let finish;
+        plugin.tableObj = null;
+        plugin.historyRoot = $('<div><div id="table-container"></div></div>').appendTo("body");
+        plugin.historyRepository[view].mockImplementation(() => new Promise(resolve => finish = resolve));
+        const loading = plugin.showHistoryView(view);
+        const replacement = $('<div><div id="table-container">新弹窗</div></div>').appendTo("body");
+        plugin.historyRoot.remove(); plugin.historyRoot = replacement;
+        finish(view === "activity" ? { entries: [] } : []);
+        await expect(loading).resolves.toBeUndefined();
+        expect(replacement.text()).toBe("新弹窗");
+    });
+
+    it.each(["activity", "offline"])("settles a pending %s render after disposal", async view => {
+        const { plugin, $ } = loadHistory();
+        let finish;
+        plugin.tableObj = null;
+        plugin.historyRoot = $('<div><div id="table-container"></div></div>').appendTo("body");
+        plugin.historyRepository[view].mockImplementation(() => new Promise(resolve => finish = resolve));
+        const loading = plugin.showHistoryView(view);
+        plugin.dispose();
+        finish(view === "activity" ? { entries: [] } : []);
+        await expect(loading).resolves.toBeUndefined();
+        expect(plugin.historyRoot).toBeNull();
+    });
+
+    it("renders product labels without exposing internal activity types or offline exceptions", async () => {
+        const { plugin, $ } = loadHistory();
+        plugin.historyRoot = $('<div><div id="table-container"></div></div>');
+        plugin.historyRepository.activity.mockResolvedValue({ entries: [{ id: "internal-transaction", type: "internal-debug-kind", createdAt: "2026-10-04", commitState: "committed", changes: [{ carNum: "ABC-1" }] }] });
+        await plugin.renderActivityHistory();
+        expect(plugin.historyRoot.text()).toContain("更新影片状态");
+        expect(plugin.historyRoot.text()).not.toContain("internal-debug-kind");
+        const offline = { id: "internal-offline-id", providerId: "115", status: "failed", carNum: "ABC-1", createdAt: "2026-10-04", errorMessage: "https://private.example/?token=secret", retryOf: "internal-transaction", resource: "magnet:?xt=urn:btih:123" };
+        plugin.historyRepository.offline.mockResolvedValue([offline]);
+        await plugin.renderOfflineHistory();
+        expect(plugin.historyRoot.text()).toContain("115 · 提交失败");
+        expect(plugin.historyRoot.text()).toContain("检查授权后重试");
+        expect(plugin.historyRoot.text()).not.toContain("secret");
+        expect(plugin.historyRoot.text()).not.toContain("internal-transaction");
+        expect(offline.errorMessage).toContain("secret");
+    });
     it("persists all four flags including explicit false values", async () => {
         const loaded = await openAndSubmit(
             { favorite: true, downloaded: true, watched: false, blocked: false },

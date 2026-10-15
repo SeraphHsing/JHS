@@ -30,7 +30,7 @@ export class CompatibilityController {
 
     start() {
         this.scope.assertActive();
-        if (this.site === "javdb") this.releaseStyle = this.style.register("feature-compatibility-ad-container", ".sda-content { display:none!important; }");
+        if (this.site === "javdb") this.releaseStyle = this.style.register("feature-compatibility-ad-container", ".sda-content { display:none!important; } .select:has(> .jhs-select-control)::after { display:none!important; content:none!important; }");
         this.scope.listen(this.document, "actress-state-changed", () => {
             for (const node of this.document.querySelectorAll(".jhs-actress-state-container")) node.remove();
             this.stateContainers.clear();
@@ -143,8 +143,8 @@ export class CompatibilityController {
         this.scope.listen(button, "click", (event) => {
             const escapedCarNum = this.document.createElement("span");
             escapedCarNum.textContent = carNum;
-            const message = `确定移除 ${escapedCarNum.innerHTML} 的鉴定记录？`;
-            this.ui.confirm(event, message, () => { void this.removeRecord(carNum, button); });
+            const message = `移除「${escapedCarNum.innerHTML}」的鉴定记录？`;
+            this.ui.confirm(event, message, () => { void this.removeRecord(carNum, button); }, { confirmText: "移除" });
         });
     }
 

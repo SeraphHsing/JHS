@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { fileURLToPath } from "node:url";
 import { fulfillHostFixtures, injectUserscriptRuntime } from "../harness/runtime.js";
+import { injectRealLayer } from "../harness/real-layer.js";
 
 test("feature disabled leaves no dead list button", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-wide", "one deterministic project covers capability rendering");
@@ -39,7 +39,7 @@ test("third-party and copy card actions follow their live settings", async ({ co
   await expect(page.locator(".copySvg").first()).toHaveCSS("display", "block");
 });
 
-test("DMM-only card video button follows its switch and preview prerequisites", async ({ context, page }, testInfo) => {
+test("card video entry follows master switch and retains native fallback with DMM off", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-wide", "one deterministic project covers the list-card DMM button switches");
   await fulfillHostFixtures(context);
   await page.goto("https://javdb.com/", { waitUntil: "domcontentloaded" });
@@ -68,7 +68,7 @@ test("DMM-only card video button follows its switch and preview prerequisites", 
     await settings.set("enablePreviewVideo", "yes");
     await settings.set("enableLoadPreviewVideo", "no");
   });
-  await expect(videoButton).toHaveCSS("display", "none");
+  await expect(videoButton).toHaveCSS("display", "flex");
   await page.evaluate(async () => {
     const settings = window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings");
     await settings.set("enableLoadPreviewVideo", "yes");
@@ -116,11 +116,11 @@ test("Library Feature owns the blacklist workspace filter and actor deletion flo
   await expect(page.locator(".tabulator-row", { hasText: "Synthetic Workspace Actor" })).toHaveCount(1);
   await page.locator("#searchValue").fill("no-such-blacklist-actor");
   await expect(page.locator(".tabulator-row")).toHaveCount(0);
-  await expect(page.locator("#table-container")).toContainText("没有符合当前筛选条件的黑名单记录");
+  await expect(page.locator("#table-container")).toContainText("暂无符合筛选的黑名单记录");
   await page.locator("#searchValue").fill("");
   const row = page.locator(".tabulator-row", { hasText: "Synthetic Workspace Actor" });
   await row.locator(".delete-btn").click();
-  await page.locator(".layui-layer-btn0").last().click();
+  await page.locator(".layui-layer-btn").getByText("解除屏蔽", { exact: true }).last().click();
   await expect.poll(() => page.evaluate(async ({ starId }) => (await window.unsafeWindow.storageManager.getBlacklist()).some(item => item.starId === starId), { starId })).toBe(false);
   await expect(page.locator(".tabulator-row", { hasText: "Synthetic Workspace Actor" })).toHaveCount(0);
 });
@@ -165,8 +165,7 @@ test("actor blacklist confirmation renders escaped names and stores the current 
     list.append(card);
     document.querySelector(".pagination-next")?.remove();
   });
-  await injectUserscriptRuntime(page, { settingOverrides: { enableCheckBlacklist: "no", enableCheckFavoriteActress: "no", enableCheckNewVideo: "no" } });
-  await page.addScriptTag({ path: fileURLToPath(new URL("../fixtures/layer-runtime/layer-1.0.9.min.js", import.meta.url)) });
+  await injectUserscriptRuntime(page, { settingOverrides: { enableCheckBlacklist: "no", enableCheckFavoriteActress: "no", enableCheckNewVideo: "no" }, beforeUserscriptInjection: injectRealLayer });
 
   await expect(page.locator("#addBlacklistBtn")).toBeVisible();
   await page.locator("#addBlacklistBtn").click();
@@ -178,8 +177,8 @@ test("actor blacklist confirmation renders escaped names and stores the current 
   }));
   expect(renderedPrompt.injectedNode).toBe(false);
   expect(renderedPrompt.message).toContain('<img id="blacklist-injection"');
-  expect(renderedPrompt.message).toContain("当前页面非第一页");
-  await dialog.locator(".layui-layer-btn0").click();
+  expect(renderedPrompt.message).toContain("当前不是第一页");
+  await dialog.locator(".layui-layer-btn").getByText("屏蔽", { exact: true }).click();
   await expect.poll(() => page.evaluate(async () => {
     const actors = await window.unsafeWindow.storageManager.getBlacklist();
     const cars = await window.unsafeWindow.storageManager.getBlacklistCarList();
@@ -204,8 +203,7 @@ test("tag blacklist confirmation renders external category text with real Layer"
     tag.textContent = '<img id="category-injection" src=x onerror="window.__categoryInjected=true">';
     document.querySelector("main")?.prepend(tag);
   });
-  await injectUserscriptRuntime(page, { settingOverrides: { enableCheckBlacklist: "no", enableCheckFavoriteActress: "no", enableCheckNewVideo: "no" } });
-  await page.addScriptTag({ path: fileURLToPath(new URL("../fixtures/layer-runtime/layer-1.0.9.min.js", import.meta.url)) });
+  await injectUserscriptRuntime(page, { settingOverrides: { enableCheckBlacklist: "no", enableCheckFavoriteActress: "no", enableCheckNewVideo: "no" }, beforeUserscriptInjection: injectRealLayer });
 
   await expect(page.locator("#addBlacklistBtn")).toBeVisible();
   await page.locator("#addBlacklistBtn").click();
@@ -214,7 +212,7 @@ test("tag blacklist confirmation renders external category text with real Layer"
   await expect(dialog.locator("#category-injection")).toHaveCount(0);
   await expect(dialog).toContainText('<img id="category-injection" src=x onerror="window.__categoryInjected=true">');
   expect(await page.evaluate(() => window.__categoryInjected === true)).toBe(false);
-  await dialog.locator(".layui-layer-btn1").click();
+  await dialog.locator(".layui-layer-btn").getByText("取消", { exact: true }).click();
   await expect(dialog).toHaveCount(0);
 });
 
@@ -422,17 +420,18 @@ test("search list pages get batch favorite/download buttons without an actress n
   await expect(page.locator("#addBlacklistBtn")).toHaveCount(0);
 });
 
-test("Preview master ON + DMM OFF leaves no DMM-only card button", async ({ context, page }, testInfo) => {
+test("Preview master ON + DMM OFF retains the detail fallback entry", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-wide", "one deterministic project covers preview capability gating");
   await fulfillHostFixtures(context);
   await page.goto("https://javdb.com/", { waitUntil: "domcontentloaded" });
-  await injectUserscriptRuntime(page);
+  await page.locator(".tags").evaluateAll(nodes=>nodes.forEach(node=>node.style.removeProperty("display")));
+  await injectUserscriptRuntime(page,{settingOverrides:{defaultQuickFilterTab:"all"}});
   const setSetting = (key, value) => page.evaluate(({ key, value }) => window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings").set(key, value), { key, value });
-  // fixture 卡片带隐藏 .tags 宿主，卡片工具可被创建；DMM OFF 时按钮隐藏，ON 时恢复。
+  // 使用可见宿主动作区，验证实际入口而非被祖先隐藏的按钮。
   await expect(page.locator(".videoSvg")).toHaveCount(1);
   await setSetting("enableLoadPreviewVideo", "no");
   await page.waitForTimeout(300);
-  await expect(page.locator(".videoSvg")).toBeHidden();
+  await expect(page.locator(".videoSvg")).toBeVisible();
   await setSetting("enableLoadPreviewVideo", "yes");
   await page.waitForTimeout(300);
   await expect(page.locator(".videoSvg")).toHaveCount(1);
@@ -520,7 +519,7 @@ test("batch actions are single-flight while a batch is running", async ({ contex
   const batchToggle = ".jhs-commandbar__batch .jhs-commandbar__menu-toggle";
   await page.locator(batchToggle).click();
   await page.locator("#favoriteAllVideo").click();
-  await page.evaluate(() => document.querySelector(".layui-layer-btn0").click());
+  await page.locator(".layui-layer-btn").getByText("收藏", { exact: true }).click();
   await expect(page.locator("#jhs-batch-progress")).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__httpCalls)).toBe(1);
   // 批量任务期间 loading 遮罩会拦截指针事件：用原生 click 验证 Single Flight 拒绝第二个任务。
@@ -556,7 +555,7 @@ test("cloud settings use the canonical catalog and persist normalized numeric va
   const openCloud = async () => {
     await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
     await expect(page.locator(".layui-layer #saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-    await page.locator('.layui-layer .side-menu-item[data-panel="cloud-services-panel"]').click();
+    await page.locator('.layui-layer .side-menu-item[data-panel="cloud-panel"]').click();
     await expect(page.locator(".layui-layer #cloud-settings-catalog")).toBeVisible();
   };
   await openCloud();

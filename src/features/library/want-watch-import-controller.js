@@ -37,10 +37,10 @@ export class WantWatchImportController {
         button.textContent = "导入至 JHS";
         this.scope.listen(button, "click", (/** @type {Event} */ rawEvent) => {
             const event = /** @type {MouseEvent} */ (rawEvent);
-            const prompt = flag === "favorite" ? "是否将想看的影片导入到 JHS 收藏？" : "是否将看过的影片导入到 JHS 已观看？";
-            this.ui.confirm(event, `${prompt} <br/> <span class="jhs-task-emphasis">执行此功能前请记得备份数据</span>`, () => {
+            const prompt = flag === "favorite" ? "将想看的影片导入 JHS 收藏？" : "将看过的影片导入 JHS 已观看？";
+            this.ui.confirm(event, `${prompt}<br/><span class="jhs-task-emphasis">请先备份数据</span>`, () => {
                 void this.importMovies(flag);
-            });
+            }, { confirmText: "导入" });
         });
         heading.append(button);
         this.button = button;
@@ -68,7 +68,7 @@ export class WantWatchImportController {
         } catch (error) {
             if (!this.scope.disposed && !isAbortError(error)) {
                 this.report(error);
-                this.notifications.error(`导入失败：${error instanceof Error ? error.message : String(error)}`);
+                this.notifications.error("影片导入失败，请重试");
             }
         } finally {
             loadingHandle?.close?.();

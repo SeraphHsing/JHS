@@ -6,6 +6,7 @@ import { join } from "node:path";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { describe, expect, it, vi } from "vitest";
+import { LifecycleScope } from "../src/core/lifecycle-scope.js";
 import { ScreenshotController } from "../src/features/detail/screenshot-controller.js";
 import { normalizeJavStoreAssetUrl } from "../src/integrations/javstore/parser.js";
 import { JavDbHostAdapter } from "../src/platform/hosts/javdb-host-adapter.js";
@@ -104,7 +105,7 @@ function createScreenshotController(overrides = {}) {
         document: dom.window.document, window: dom.window,
         hostAdapter: overrides.hostAdapter ?? { site: "javdb", readMovieRef: () => ({ carNum: "ABC-123" }), locateNativeGallery: () => null },
         route: "detail", settings, screenshot, styles: { register: vi.fn(() => vi.fn()) }, ui: { openImageViewer: vi.fn() },
-        diagnostics: { recordError: vi.fn() }, scope: overrides.scope ?? { id: "detail", disposed: false },
+        diagnostics: { recordError: vi.fn() }, scope: overrides.scope ?? new LifecycleScope("detail"),
     });
     return { controller, dom, screenshot, settings };
 }

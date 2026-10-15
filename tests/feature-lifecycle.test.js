@@ -67,8 +67,10 @@ function makeAutoPage(autoPage, request = vi.fn(async () => ({ data: "" }))) {
 }
 
 describe("Live feature lifecycle (mount/unmount/reconfigure)", () => {
-    it("AutoPage: OFF 停止（loader 移除、请求清空），ON 重新启动不刷新", async () => {
-        const fixture = makeAutoPage("no");
+    it("AutoPage: OFF 释放监听并保留已加载页，ON 不重复映射，dispose 才清空", async () => {
+        const request = vi.fn(async () => ({ data: '<div class="movie-list"><div class="item"><a href="/v/abc-002"><strong>ABC-002</strong></a></div></div><a class="pagination-next" href="/page/3">下一页</a>' }));
+        const fixture = makeAutoPage("no", request);
+        doc.querySelector(".movie-list").innerHTML = '<div class="item"><a href="/v/abc-001"><strong>ABC-001</strong></a></div>';
         await fixture.controller.reconfigure();
         expect(fixture.controller.started).toBe(false);
         expect(fixture.controller.loader).toBeUndefined();
@@ -77,10 +79,32 @@ describe("Live feature lifecycle (mount/unmount/reconfigure)", () => {
         await fixture.controller.reconfigure();
         expect(fixture.controller.started).toBe(true);
         expect(fixture.controller.loader).toBeInstanceOf(win.HTMLElement);
+        await fixture.controller.loadNextPage();
+        const pages = fixture.controller.pageItems, nextUrl = fixture.controller.nextUrl, firstScope = fixture.controller.liveScope;
+        expect(pages.map(({ page }) => page)).toEqual([1, 2]);
+        expect($(".movie-list").children()).toHaveLength(2);
+        expect(firstScope.snapshot().listeners).toBe(1);
         fixture.controller.stop();
         expect(fixture.controller.loader).toBeUndefined();
-        expect(fixture.controller.nextUrl).toBeNull();
+        expect(firstScope.snapshot()).toMatchObject({ disposed: true, listeners: 0, requestConsumers: 0 });
+        expect(firstScope.signal.aborted).toBe(true);
+        expect(fixture.controller.pageItems).toBe(pages);
+        expect(fixture.controller.nextUrl).toBe(nextUrl);
+        expect(nextUrl).toBe("/page/3");
+        await fixture.controller.reconfigure();
+        await fixture.controller.start();
+        expect(fixture.controller.pageItems).toBe(pages);
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1, 2]);
+        expect(fixture.controller.loadedPage).toBe(2);
+        expect(fixture.controller.nextUrl).toBe("/page/3");
+        expect($(".movie-list").children()).toHaveLength(2);
+        expect($(".jhs-scroll")).toHaveLength(1);
+        expect(fixture.controller.liveScope.snapshot().listeners).toBe(1);
+        expect(request).toHaveBeenCalledOnce();
+        fixture.controller.dispose();
         expect(fixture.controller.pageItems).toEqual([]);
+        expect(fixture.controller.nextUrl).toBeNull();
+        expect(fixture.controller.liveScope).toBeNull();
         fixture.scope.dispose();
     });
 
@@ -150,23 +174,63 @@ describe("Live feature lifecycle (mount/unmount/reconfigure)", () => {
     it("AutoPage: stop 释放 liveScope，请求中切 OFF 不再 append", async () => {
         let resolveRequest;
         const pending = new Promise((resolve) => { resolveRequest = resolve; });
-        const request = vi.fn(() => pending);
+        const releaseRequest = vi.fn();
+        const request = vi.fn((_options, scope) => { scope.ownRequestConsumer({ release: releaseRequest }); return pending; });
         const fixture = makeAutoPage("yes", request);
         doc.querySelector(".movie-list").insertAdjacentHTML("afterend", '<a class="pagination-next" href="/page/2">下一页</a>');
         await fixture.controller.reconfigure();
         expect(fixture.controller.started).toBe(true);
         const firstScope = fixture.controller.liveScope;
+        const pages = fixture.controller.pageItems, nextUrl = fixture.controller.nextUrl;
         expect(firstScope).not.toBeNull();
         const loadPromise = fixture.controller.loadNextPage();
         await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+        expect(firstScope.snapshot()).toMatchObject({ listeners: 1, requestConsumers: 1 });
         fixture.controller.stop();
         expect(fixture.controller.started).toBe(false);
         expect(fixture.controller.liveScope).toBeNull();
-        expect(firstScope.disposed).toBe(true);
+        expect(firstScope.snapshot()).toMatchObject({ disposed: true, listeners: 0, requestConsumers: 0 });
+        expect(firstScope.signal.aborted).toBe(true);
+        expect(releaseRequest).toHaveBeenCalledOnce();
         resolveRequest({ data: '<div class="movie-list"><div class="item"></div></div>' });
         await loadPromise;
-        expect(fixture.controller.pageItems).toEqual([]);
+        expect(fixture.controller.pageItems).toBe(pages);
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1]);
+        expect(fixture.controller.nextUrl).toBe(nextUrl);
         expect($(".movie-list").children().length).toBe(0);
+        await fixture.controller.reconfigure();
+        expect(fixture.controller.pageItems).toBe(pages);
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1]);
+        expect($(".jhs-scroll")).toHaveLength(1);
+        expect(fixture.controller.liveScope.snapshot().listeners).toBe(1);
+        fixture.controller.dispose();
+        expect(fixture.controller.pageItems).toEqual([]);
+        expect(fixture.controller.nextUrl).toBeNull();
+        fixture.scope.dispose();
+    });
+
+    it("AutoPage: 旧首次启动 Promise 完成时不能清空关闭重开后的新 Promise", async () => {
+        const fixture = makeAutoPage("yes"), pendingChecks = [];
+        fixture.controller.shouldDisablePaging = vi.fn(() => new Promise(resolve => pendingChecks.push(resolve)));
+        const first = fixture.controller.start();
+        expect(fixture.controller.start()).toBe(first);
+        fixture.controller.stop();
+        const second = fixture.controller.start();
+        expect(second).not.toBe(first);
+        expect(fixture.controller.start()).toBe(second);
+        pendingChecks[0](false);
+        await first;
+        expect(fixture.controller.waterfallPromise).toBe(second);
+        expect(fixture.controller.start()).toBe(second);
+        expect(fixture.controller.loader).toBeUndefined();
+        pendingChecks[1](false);
+        await second;
+        expect(fixture.controller.waterfallPromise).toBeNull();
+        await fixture.controller.start();
+        expect($(".jhs-scroll")).toHaveLength(1);
+        expect(fixture.controller.liveScope.snapshot().listeners).toBe(1);
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1]);
+        fixture.controller.dispose();
         fixture.scope.dispose();
     });
 

@@ -166,7 +166,7 @@ describe("ListBatchController", () => {
 
         await expect(controller.run({ kind: "search" }, "favorite", { filter: "all" })).resolves.toEqual({ cancelled: true });
 
-        expect(ui.confirm).toHaveBeenCalledWith(expect.stringContaining("当前字幕筛选只影响显示，不限制批量处理范围"));
+        expect(ui.confirm).toHaveBeenCalledWith(expect.stringContaining("当前字幕筛选只影响显示，不限制批量处理范围"), { confirmText: "收藏" });
         expect(state.patch).not.toHaveBeenCalled();
     });
 });

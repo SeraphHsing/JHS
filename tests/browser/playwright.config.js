@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const visualRegression = process.env.JHS_VISUAL_REGRESSION === "1";
-const channel = visualRegression || process.env.CI ? undefined : process.env.JHS_BROWSER_CHANNEL || "msedge";
+const channel = visualRegression || process.env.CI || process.env.JHS_BROWSER_CHANNEL === "bundled" ? undefined : process.env.JHS_BROWSER_CHANNEL || "msedge";
 const viewports = [
   ["desktop-wide", 1440, 900, false],
   ["desktop-regular", 1280, 720, false],
@@ -13,12 +13,12 @@ const viewports = [
 
 export default defineConfig({
   testDir: "./specs",
-  outputDir: "../../output/playwright/test-results",
+  outputDir: process.env.JHS_BROWSER_OUTPUT_DIR || "../../output/playwright/test-results",
   snapshotDir: "./screenshots/baseline",
   snapshotPathTemplate: "{snapshotDir}/{arg}-{projectName}-{platform}{ext}",
-  workers: 1,
+  workers: Number(process.env.JHS_BROWSER_WORKERS) || 1,
   retries: process.env.CI ? 1 : 0,
-  reporter: [["line"], ["html", { outputFolder: "../../output/playwright/report", open: "never" }]],
+  reporter: [["line"], ["html", { outputFolder: process.env.JHS_BROWSER_REPORT_DIR || "../../output/playwright/report", open: "never" }]],
   use: {
     channel,
     headless: true,
@@ -26,8 +26,12 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure"
   },
-  projects: viewports.map(([name, width, height, touch]) => ({
+  projects: [...viewports.map(([name, width, height, touch]) => ({
     name,
     use: { viewport: { width, height }, hasTouch: touch, isMobile: touch }
-  }))
+  })), {
+    name: "firefox-controls",
+    testMatch: /ui-control-states\.spec\.js/,
+    use: { browserName: "firefox", channel: "", viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false }
+  }]
 });

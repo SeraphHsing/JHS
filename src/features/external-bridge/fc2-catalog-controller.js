@@ -1,5 +1,7 @@
 // @ts-check
 
+import { PRODUCT_NAMES } from "../../core/product-names.js";
+
 import { normalizeHttpUrl } from "../../core/feature-helpers.js";
 import { classifyJavDbPage } from "../../core/site-context.js";
 import { createFc2SourceLinks, renderFc2Gallery, renderFc2State } from "../../ui/detail/fc2-workspace-view.js";
@@ -69,7 +71,7 @@ export class Fc2CatalogController {
         link.id = "jhs-123av-nav";
         link.className = "navbar-item";
         link.href = "/tags/fc2?c10=1&jhs_source=123av";
-        link.textContent = "123AV · FC2片库";
+        link.textContent = `${PRODUCT_NAMES.av123} · ${PRODUCT_NAMES.fc2} 片库`;
         categoryLink.after(link);
         this.categoryLink = link;
     }
@@ -82,11 +84,11 @@ export class Fc2CatalogController {
         if (existingHeading) {
             this.heading = existingHeading;
             this.headingSnapshot = existingHeading.cloneNode(true);
-            existingHeading.textContent = "123AV · FC2片库";
+            existingHeading.textContent = `${PRODUCT_NAMES.av123} · ${PRODUCT_NAMES.fc2} 片库`;
         } else {
             this.heading = this.document.createElement("h2");
             this.heading.className = "section-title";
-            this.heading.textContent = "123AV · FC2片库";
+            this.heading.textContent = `${PRODUCT_NAMES.av123} · ${PRODUCT_NAMES.fc2} 片库`;
             container.prepend(this.heading);
             this.ownedHeading = true;
         }
@@ -97,7 +99,7 @@ export class Fc2CatalogController {
         this.searchInput = this.document.createElement("input");
         this.searchInput.id = "search-123av-keyword";
         this.searchInput.type = "text";
-        this.searchInput.placeholder = "搜索123AV FC2内容";
+        this.searchInput.placeholder = `搜索 ${PRODUCT_NAMES.av123} ${PRODUCT_NAMES.fc2} 影片`;
         this.searchInput.className = "jhs-field";
         this.searchInput.value = this.keyword;
         const searchButton = this.createButton("搜索", "jhs-btn jhs-btn--primary jhs-layout-21a4fe43");
@@ -243,7 +245,7 @@ export class Fc2CatalogController {
             this.currentPage = Math.min(Math.max(1, this.currentPage), this.maxPage);
             this.renderPagination();
             this.renderItems(items);
-            if (!items.length) this.notifications.error("无结果");
+            if (!items.length) this.notifications.error("未找到相关影片");
             if (this.processAddedItems) await this.processAddedItems([...this.catalogRoot.querySelectorAll(".item")]);
             await this.ui.smoothScrollToTop?.();
         } catch (error) {
@@ -298,15 +300,21 @@ export class Fc2CatalogController {
         const imagesPromise = this.getImgList(context.carNum);
         const actressPromise = this.getActressInfo(context.carNum);
         imagesPromise.then((images) => context.isAlive() && renderFc2Gallery(context, images, null)).catch(() => context.isAlive() && renderFc2State(context.root.find('[data-jhs-role="gallery-grid"]'), "剧照加载失败", () => void this.reloadImages(context)));
-        actressPromise.then(async (data) => {
+        const renderActress = actressPromise.then(async (data) => {
             await infoPromise.catch(() => null);
             if (context.isAlive()) this.render123AvActress(context, data);
-        }).catch((error) => this.diagnostics.recordError({ source: "fc2-catalog", message: error instanceof Error ? error.message : String(error) }));
-        await Promise.allSettled([infoPromise, imagesPromise, actressPromise]);
+        }).catch(async (error) => {
+            await infoPromise.catch(() => null);
+            if (context.isAlive()) context.root.find('[data-jhs-role="actors"]').attr("aria-busy", "false").find("span").text("演员信息加载失败");
+            this.diagnostics.recordError({ source: "fc2-catalog", message: error instanceof Error ? error.message : String(error) });
+        });
+        await Promise.allSettled([infoPromise, imagesPromise, renderActress]);
     }
 
     /** @param {Fc2DetailContext} context @param {string} url */
     async loadSummary(context, url) {
+        const body = context.root.find('[data-jhs-role="summary-content"]');
+        renderFc2State(body, "加载中…");
         try {
             const info = await this.get123AvVideoInfo(context.carNum, url);
             if (!context.isAlive()) return null;
@@ -316,6 +324,8 @@ export class Fc2CatalogController {
             if (context.isAlive()) renderFc2State(context.root.find('[data-jhs-role="summary-content"]'), "影片信息加载失败", () => void this.loadSummary(context, url));
             this.diagnostics.recordError({ source: "fc2-catalog", message: error instanceof Error ? error.message : String(error) });
             throw error;
+        } finally {
+            body.attr("aria-busy", "false");
         }
     }
 
@@ -325,7 +335,7 @@ export class Fc2CatalogController {
         const body = context.root.find('[data-jhs-role="summary-content"]').empty();
         const title = $('<h1 class="jhs-fc2-title"><strong class="current-title"></strong></h1>');
         title.find("strong").text(info.title || "无标题");
-        body.append(title, $('<div class="jhs-fc2-meta"></div>').append($('<span></span>').text(`番号：${context.carNum}`), $('<span></span>').text(`发行：${info.publishDate || "未知"}`)), '<div class="jhs-fc2-actors" data-jhs-role="actors"><strong>主演：</strong><span>正在加载演员…</span></div>', '<div class="jhs-fc2-meta" data-jhs-role="seller"></div>', createFc2SourceLinks(context, this.movie), $('<span class="jhs-is-hidden" data-jhs-role="publish-time"></span>').text(info.publishDate || ""));
+        body.append(title, $('<div class="jhs-fc2-meta"></div>').append($('<span></span>').text(`番号：${context.carNum}`), $('<span></span>').text(`发行：${info.publishDate || "未知"}`)), '<div class="jhs-fc2-actors" data-jhs-role="actors" aria-busy="true"><strong>主演：</strong><span role="status">加载中…</span></div>', '<div class="jhs-fc2-meta" data-jhs-role="seller"></div>', createFc2SourceLinks(context, this.movie), $('<span class="jhs-is-hidden" data-jhs-role="publish-time"></span>').text(info.publishDate || ""));
     }
 
     /** @param {string} carNum @param {string} url */
@@ -356,7 +366,7 @@ export class Fc2CatalogController {
     /** @param {Fc2DetailContext} context @param {{actors: Array<{name: string, url: string}>, seller?: {name: string, url?: string} | null}} data */
     render123AvActress(context, data) {
         const $ = this.jquery;
-        const host = context.root.find('[data-jhs-role="actors"]').empty().append("<strong>主演：</strong>");
+        const host = context.root.find('[data-jhs-role="actors"]').attr("aria-busy", "false").empty().append("<strong>主演：</strong>");
         if (data.actors.length) data.actors.forEach((actor) => host.append($('<a></a>').addClass("jhs-fc2-actor").attr({ href: actor.url, target: "_blank", rel: "noopener noreferrer" }).text(actor.name)));
         else host.append($('<span></span>').text("暂无演员信息"));
         context.root.find('[data-jhs-role="actress-data"]').remove();

@@ -6,7 +6,7 @@ import { hasAnyState } from "../../core/state-model.js";
 /** @typedef {{ keyword?: boolean, actorBlacklist?: boolean, actressBlacklist?: boolean }} VisibilityReasons */
 
 export const QUICK_FILTER_LABELS = Object.freeze({
-    all: "全部", waitCheck: "待鉴定", favorite: "收藏", hasDown: "下载", hasWatch: "已看",
+    all: "全部", waitCheck: "待鉴定", favorite: "收藏", hasDown: "已下载", hasWatch: "已观看",
     blockedItems: "屏蔽项", favoriteUndownloaded: "收藏未下载", favoriteUnwatched: "收藏未观看",
     downloadedUnwatched: "下载未观看", recent7d: "最近 7 天"
 });

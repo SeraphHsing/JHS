@@ -1,5 +1,7 @@
 // @ts-check
 
+import { PRODUCT_NAMES } from "../../core/product-names.js";
+
 /** @param {unknown} value */
 function normalizeUrl(value) {
     try {
@@ -13,6 +15,9 @@ import { createPanelState } from "./primitives.js";
 /** @param {any} target @param {string} message @param {null|(() => void)} [retry] */
 export function renderFc2State(target, message, retry = null) {
     const jq = /** @type {any} */ (globalThis).$, host = jq(target).empty();
+    const loading = /^(正在加载|加载中)/.test(message);
+    host.attr("aria-busy", String(loading));
+    if (loading) message = "加载中…";
     const state = createPanelState(message, { retry, tone: retry ? "error" : "neutral", extraClass: "jhs-fc2-state" });
     host.append(state);
 }
@@ -40,7 +45,7 @@ export function createFc2SourceLinks(context, movieService) {
     const jq = /** @type {any} */ (globalThis).$;
     const links = jq('<div class="jhs-fc2-source-links" aria-label="影片来源"></div>');
     const providerLinks = movieService.sourceUrls({ carNum: context.carNum }, ["fc2ppvdb", "fc2content"]);
-    const values = [["123av" === context.source ? "123AV 原页面" : "JavDB 原页面", normalizeUrl(context.url)], ...providerLinks.map((/** @type {any} */ item) => [item.providerId === "fc2ppvdb" ? "FC2PPVDB" : "FC2 市场", item.url])];
+    const values = [["123av" === context.source ? `${PRODUCT_NAMES.av123} 原页面` : `${PRODUCT_NAMES.javdb} 原页面`, normalizeUrl(context.url)], ...providerLinks.map((/** @type {any} */ item) => [item.providerId === "fc2ppvdb" ? "FC2PPVDB" : `${PRODUCT_NAMES.fc2} 市场`, item.url])];
     values.forEach(([label, href]) => href && links.append(jq("<a></a>").addClass("jhs-btn jhs-btn--ghost jhs-btn--sm").attr({ href, target: "_blank", rel: "noopener noreferrer" }).text(label)));
     return links;
 }

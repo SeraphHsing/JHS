@@ -160,7 +160,7 @@ export class TaskExecutionService {
         if (this.activeTasks.has(name)) status = "running";
         else if (state.pending && now < nextAt) status = "pending";
         else if (null == storedNext || now >= nextAt) status = "due";
-        return { name, state: status, completedAt: state.completed, attemptAt: state.attempt, nextAt, isPending: state.pending, pendingUntil: state.pending ? nextAt : null };
+        return { name, ready: this.window.isListPage !== false, state: status, completedAt: state.completed, attemptAt: state.attempt, nextAt, isPending: state.pending, pendingUntil: state.pending ? nextAt : null };
     }
     /** @param {string} name @param {string} phase */
     async emitTaskStatus(name, phase) {
@@ -339,7 +339,7 @@ export class TaskExecutionService {
                     sleep: (/** @type {number} */ ms) => this.utils.sleep(ms), getTimestamp: () => this.utils.getNowStr(), requestConfig: this.taskConfig,
                     onActorStart: (/** @type {TaskRecord} */ item) => {
                         this.logger.log("正在检屏黑名单演员:", item.name, item.url);
-                        this.jquery("#checkBlacklistMsg").text(`正在检屏黑名单演员: ${item.name} ${item.url}`);
+                        this.jquery("#checkBlacklistMsg").text(`正在检测：${item.name}`);
                     },
                     onError: (/** @type {string} */ message, /** @type {TaskRecord} */ item, /** @type {unknown} */ error) => this.logger.error(message, item.url, error),
                     onRemaining: (/** @type {number} */ remaining) => remaining > 0 && this.logger.htmlDebug(`剩余任务数: <span class="jhs-task-emphasis">${remaining}</span>`),
@@ -380,7 +380,7 @@ export class TaskExecutionService {
                         const {starId, name, url} = item;
                         let responseText;
                         try {
-                            this.logger.log("正在检屏黑名单演员:", name, url), this.jquery("#checkBlacklistMsg").text(`正在检屏黑名单演员: ${name} ${url}`), responseText = await this.requestHostPage(url, site);
+                            this.logger.log("正在检屏黑名单演员:", name, url), this.jquery("#checkBlacklistMsg").text(`正在检测：${name}`), responseText = await this.requestHostPage(url, site);
                         } catch (error) {
                             result.networkFailed++;
                             if (this.isNetworkBlocked(error)) throw error;
@@ -436,7 +436,7 @@ export class TaskExecutionService {
                     const sync = await featureSync.call(this.featureNewVideoScanController, {
                         baseUrl: this.javDbUrl,
                         startUrl: `${this.javDbUrl}/users/collection_actors`,
-                        onPage: (/** @type {string} */ url) => this.jquery("#checkNewVideoMsg").text(`正在解析已收藏的演员: ${url}`),
+                        onPage: (/** @type {string} */ url) => this.jquery("#checkNewVideoMsg").text("正在同步收藏演员…"),
                     });
                     actors = sync.actors;
                     pages = sync.pages;
@@ -477,7 +477,7 @@ export class TaskExecutionService {
                 if (currentUrl.origin !== expected.origin || currentUrl.pathname !== expected.pathname) throw new Error(`收藏演员分页地址越界: ${currentUrl.href}`);
                 if (visitedUrls.has(currentUrl.href)) throw new Error(`收藏演员分页循环: ${currentUrl.href}`);
                 if (pages >= 200) throw new Error("收藏演员分页超过 200 页");
-                visitedUrls.add(currentUrl.href), pages++, this.logger.log(`正在抓取页面: ${currentUrl.href}`), this.jquery("#checkNewVideoMsg").text(`正在解析已收藏的演员: ${currentUrl.href}`);
+                visitedUrls.add(currentUrl.href), pages++, this.logger.log(`正在抓取页面: ${currentUrl.href}`), this.jquery("#checkNewVideoMsg").text("正在同步收藏演员…");
                 const parsed = /** @type {any} */ (await this.getRuntimeService("actressInfo").collection("javdb", { baseUrl: this.javDbUrl, pageUrl: currentUrl.href }, { scope: await this.getRuntimeService("scope")() }));
                 if ("valid" !== parsed.state) throw Object.assign(new Error(`收藏演员页面无效: ${parsed.state}`), { _taskParse: !0 });
                 if (parsed.isEmpty && parsed.nextUrl) throw Object.assign(new Error("收藏演员空页面包含下一页"), { _taskParse: !0 });
@@ -512,7 +512,7 @@ export class TaskExecutionService {
                     sleep: (/** @type {number} */ ms) => this.utils.sleep(ms),
                     onActorStart: (/** @type {TaskRecord} */ actress, /** @type {string} */ url) => {
                         this.logger.log("正在检测最新作品, 演员:", actress.name, url);
-                        this.jquery("#checkNewVideoMsg").text(`正在检测最新作品, 演员: ${actress.name}`);
+                        this.jquery("#checkNewVideoMsg").text(`正在检测：${actress.name}`);
                     },
                 });
                 Object.assign(result, {
@@ -540,7 +540,7 @@ export class TaskExecutionService {
                         await this.limitConcurrency(eligible, concurrency, sleep, (async (/** @type {TaskRecord} */ actress) => {
                             const {name, starId} = actress, url = `${this.javDbUrl}/actors/${starId}?t=d`;
                             try {
-                                this.logger.log("正在检测最新作品, 演员:", name, url), this.jquery("#checkNewVideoMsg").text(`正在检测最新作品, 演员: ${name}`);
+                                this.logger.log("正在检测最新作品, 演员:", name, url), this.jquery("#checkNewVideoMsg").text(`正在检测：${name}`);
                                 const movies = await this.getRuntimeService("actressInfo").movies("javdb", { actorId: starId, baseUrl: this.javDbUrl }, { scope: await this.getRuntimeService("scope")(), ttlMs: 0 });
                                 try {
                                     await this.storageQueue.addTask((async () => this.parseActorMovies(movies, starId, name, titleKeywords, blacklistSet))), result.success++;
@@ -669,11 +669,11 @@ export class TaskExecutionService {
         const {name, starId} = e, url = `${this.javDbUrl}/actors/${starId}?t=d`;
         const l = this.jquery("#checkNewVideoMsg");
         try {
-            this.logger.log("正在检测最新作品, 演员:", name, url), l.text(`正在检测最新作品, 演员: ${name}`);
+            this.logger.log("正在检测最新作品, 演员:", name, url), l.text(`正在检测：${name}`);
             if (this.featureNewVideoScanController?.scanActress) {
                 await this.featureNewVideoScanController.scanActress(e, {
                     baseUrl: this.javDbUrl,
-                    onActorStart: (/** @type {TaskRecord} */ actress) => l.text(`正在检测最新作品, 演员: ${actress.name}`),
+                    onActorStart: (/** @type {TaskRecord} */ actress) => l.text(`正在检测：${actress.name}`),
                 });
             } else {
                 const titleKeywords = await this.legacyStorage.getTitleFilterKeyword(), blacklistCars = await this.legacyStorage.getBlacklistCarList(), blacklistSet = new Set(blacklistCars.map((/** @type {TaskRecord} */ item) => item.carNum));
@@ -681,8 +681,8 @@ export class TaskExecutionService {
                 await this.parseActorMovies(movies, starId, name, titleKeywords, blacklistSet);
             }
         } catch (c) {
-            this.logger.error("检测屏蔽演员信息, 发生错误:", url, c), this.notifications.error("检测屏蔽演员信息, 发生错误:" + c, { gravity: "bottom", position: "right" }),
-            l.text(`检测屏蔽演员信息, 发生错误: ${url}`);
+            this.logger.error("检测屏蔽演员信息, 发生错误:", url, c), this.notifications.error("演员信息检测失败，请重试", { gravity: "bottom", position: "right" }),
+            l.text("演员信息检测失败，请重试");
             return;
         }
         try { this.logger.html('<span class="jhs-task-emphasis">检测最新作品---结束</span>'); }

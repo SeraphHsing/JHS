@@ -50,7 +50,14 @@ function setup(autoPage = "yes", response = "", visibilitySnapshot = null) {
     return { controller, settings, scope, eventBus, handlers, http, list, selectors, logger };
 }
 
-afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ""; });
+const initialPageUrl = window.location.href;
+afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    window.history.replaceState({}, "", initialPageUrl);
+    window.scrollY = 0;
+    document.body.innerHTML = "";
+});
 
 describe("List Feature auto-page controller", () => {
     it.each([
@@ -75,12 +82,17 @@ describe("List Feature auto-page controller", () => {
         settings.update("yes");
         await vi.waitFor(() => expect(controller.loader).toBeInstanceOf(HTMLDivElement));
         const liveScope = controller.liveScope;
+        const pages = controller.pageItems, nextUrl = controller.nextUrl;
         expect(liveScope?.snapshot().listeners).toBe(1);
         settings.update("no");
         await vi.waitFor(() => expect(controller.loader).toBeUndefined());
         expect(liveScope?.snapshot()).toMatchObject({ disposed: true, listeners: 0 });
-        expect(controller.pageItems).toEqual([]);
+        expect(controller.pageItems).toBe(pages);
+        expect(controller.pageItems).toHaveLength(1);
+        expect(controller.nextUrl).toBe(nextUrl);
         scope.dispose();
+        expect(controller.pageItems).toEqual([]);
+        expect(controller.nextUrl).toBeNull();
     });
 
     it("appends the next host page, upgrades its covers, and replaces native pagination", async () => {
@@ -95,6 +107,23 @@ describe("List Feature auto-page controller", () => {
         expect(controller.nextUrl).toBe("/page/3");
         expect(controller.pageItems).toHaveLength(2);
         scope.dispose();
+    });
+
+    it.each([
+        { site: "javdb", route: "/?page=5" },
+        { site: "javbus", route: "/page/5" },
+    ])("continues the loaded page counter from a native $site page route", async ({ site, route }) => {
+        window.history.replaceState({}, "", route);
+        const html = `<div class="movie-list">${card("ABC-006", "/v/page-6").outerHTML}</div><a class="pagination-next" href="/page/7">下一页</a>`;
+        const fixture = setup("yes", html);
+        fixture.controller.hostAdapter.site = site;
+        document.querySelector(".pagination-next").setAttribute("href", "/page/6");
+        await fixture.controller.mount();
+        await fixture.controller.loadNextPage();
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([5, 6]);
+        expect(fixture.controller.loadedPage).toBe(6);
+        expect(fixture.controller.currentPage).toBe(5);
+        fixture.scope.dispose();
     });
 
     it("stops before appending pages with two consecutive duplicate car numbers", async () => {
@@ -135,6 +164,9 @@ describe("List Feature auto-page controller", () => {
         await vi.waitFor(() => expect(fixture.http.request).toHaveBeenCalledTimes(2));
         await vi.waitFor(() => expect(document.querySelectorAll(".movie-list .item")).toHaveLength(3));
         expect(fixture.http.request).toHaveBeenCalledTimes(2);
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1, 2, 3]);
+        expect(fixture.controller.loadedPage).toBe(3);
+        expect(fixture.controller.currentPage).toBe(1);
 
         fixture.controller.onVisibilityChanged({ filter: "all", visible: 32, total: 32 });
         await vi.waitFor(() => expect(fixture.http.request).toHaveBeenCalledTimes(3));
@@ -147,13 +179,114 @@ describe("List Feature auto-page controller", () => {
         const fixture = setup("yes");
         fixture.http.request.mockImplementation(() => pending);
         await fixture.controller.mount();
+        const pages = fixture.controller.pageItems, nextUrl = fixture.controller.nextUrl;
         const load = fixture.controller.loadNextPage();
         await vi.waitFor(() => expect(fixture.http.request).toHaveBeenCalledOnce());
         fixture.settings.update("no");
         resolveResponse({ data: `<div class="movie-list">${card("ABC-002", "/v/late").outerHTML}</div>` });
         await load;
         expect(document.querySelectorAll(".movie-list .item")).toHaveLength(1);
-        expect(fixture.controller.pageItems).toEqual([]);
+        expect(fixture.controller.pageItems).toBe(pages);
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1]);
+        expect(fixture.controller.loadedPage).toBe(1);
+        expect(fixture.controller.nextUrl).toBe(nextUrl);
+        fixture.scope.dispose();
+    });
+
+    it("keeps loaded page numbers separate from the viewport and preserves their mapping across OFF and ON", async () => {
+        const fixture = setup("yes", "", { filter: "favorite", visible: 0, total: 3 });
+        let nextPage = 2;
+        fixture.http.request.mockImplementation(async () => {
+            const page = nextPage++;
+            return { data: `<div class="movie-list">${card(`ABC-00${page}`, `/v/page-${page}`).outerHTML}</div><a class="pagination-next" href="/page/${page + 1}">下一页</a>` };
+        });
+        await fixture.controller.mount();
+        await fixture.controller.loadNextPage({ manual: true });
+        await fixture.controller.loadNextPage({ manual: true });
+        const pages = fixture.controller.pageItems;
+        expect(pages.map(({ page }) => page)).toEqual([1, 2, 3]);
+        expect(fixture.controller.currentPage).toBe(1);
+        expect(fixture.controller.loadedPage).toBe(3);
+        pages.slice(1).forEach((page, index) => {
+            const top = (index + 1) * 500;
+            page.items[0].getClientRects = () => [{ top }];
+            page.items[0].getBoundingClientRect = () => ({ top: top - window.scrollY });
+        });
+        window.scrollY = 600;
+        fixture.controller.checkScrollPosition();
+        expect(fixture.controller.currentPage).toBe(2);
+        expect(window.location.pathname).toBe("/page/2");
+
+        const oldScope = fixture.controller.liveScope;
+        fixture.settings.update("no");
+        expect(oldScope.disposed).toBe(true);
+        fixture.settings.update("yes");
+        await vi.waitFor(() => expect(fixture.controller.loader).toBeInstanceOf(HTMLDivElement));
+        expect(fixture.controller.pageItems).toBe(pages);
+        expect(fixture.controller.currentPage).toBe(2);
+        expect(fixture.controller.loadedPage).toBe(3);
+        expect(fixture.controller.nextUrl).toBe("/page/4");
+        expect(document.querySelectorAll(".jhs-scroll")).toHaveLength(1);
+        expect(fixture.controller.liveScope.snapshot().listeners).toBe(1);
+        await fixture.controller.start();
+        expect(document.querySelectorAll(".jhs-scroll")).toHaveLength(1);
+
+        window.scrollY = 1100;
+        fixture.controller.checkScrollPosition();
+        expect(fixture.controller.currentPage).toBe(3);
+        expect(window.location.pathname).toBe("/page/3");
+        pages[2].items[0].getClientRects = () => [];
+        fixture.controller.checkScrollPosition();
+        expect(fixture.controller.currentPage).toBe(2);
+        expect(window.location.pathname).toBe("/page/2");
+        window.scrollY = 0;
+        fixture.controller.checkScrollPosition();
+        expect(fixture.controller.currentPage).toBe(1);
+        expect(window.location.href).toBe(initialPageUrl);
+        await fixture.controller.loadNextPage({ manual: true });
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1, 2, 3, 4]);
+        expect(fixture.controller.loadedPage).toBe(4);
+        expect(fixture.controller.currentPage).toBe(1);
+        fixture.scope.dispose();
+    });
+
+    it("keeps the final loaded page exhausted after OFF and ON even if the original next link remains", async () => {
+        const html = `<div class="movie-list">${card("ABC-002", "/v/final-page").outerHTML}</div>`;
+        const fixture = setup("yes", html);
+        await fixture.controller.mount();
+        await fixture.controller.loadNextPage();
+        expect(document.querySelector(".pagination-next")).not.toBeNull();
+        fixture.settings.update("no");
+        fixture.settings.update("yes");
+        await vi.waitFor(() => expect(fixture.controller.loader).toBeInstanceOf(HTMLDivElement));
+        fixture.controller.checkLoad();
+        await fixture.controller.loadNextPage();
+        expect(fixture.controller.nextUrl).toBeNull();
+        expect(fixture.controller.hasMore).toBe(false);
+        expect(fixture.controller.loader.textContent).toBe("已经到底了");
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1, 2]);
+        expect(fixture.http.request).toHaveBeenCalledOnce();
+        fixture.scope.dispose();
+    });
+
+    it("ignores a rejected old request after OFF and ON without replacing the new loader state", async () => {
+        let rejectResponse;
+        const pending = new Promise((_, reject) => { rejectResponse = reject; });
+        const fixture = setup("yes", "", { filter: "favorite", visible: 0, total: 1 });
+        fixture.http.request.mockImplementation(() => pending);
+        await fixture.controller.mount();
+        const load = fixture.controller.loadNextPage({ manual: true });
+        await vi.waitFor(() => expect(fixture.http.request).toHaveBeenCalledOnce());
+        fixture.settings.update("no");
+        fixture.settings.update("yes");
+        await vi.waitFor(() => expect(fixture.controller.loader).toBeInstanceOf(HTMLDivElement));
+        rejectResponse(new Error("old request aborted"));
+        await load;
+        expect(fixture.controller.loader.classList.contains("waterfall-paused")).toBe(true);
+        expect(fixture.controller.loader.textContent).toContain("已加载内容无匹配");
+        expect(fixture.controller.pageItems.map(({ page }) => page)).toEqual([1]);
+        expect(fixture.controller.isLoading).toBe(false);
+        expect(fixture.logger.error).not.toHaveBeenCalled();
         fixture.scope.dispose();
     });
 

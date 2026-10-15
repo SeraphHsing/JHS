@@ -1,5 +1,6 @@
 // @ts-check
 
+import { getIcon } from "../../core/icons.js";
 import { C, _, r, escapeHtml } from "../../core/constants.js";
 import { parseNumberSetting } from "../../core/feature-helpers.js";
 import { applyImageMode } from "./setting-styles.js";
@@ -249,7 +250,7 @@ export async function initQuickSettingForm(dependencies, getSelector, openSettin
             event.stopPropagation();
             const currentBinding = host.data("jhsQuickSettingBinding");
             await currentBinding?.flush?.();
-            disposeQuickSettingHost(host, dependencies.jquery);
+            host.hide();
             await openSettingDialogFn("base-panel");
         }));
 }
@@ -270,6 +271,7 @@ export async function saveSettingForm(dependencies, layerRoot = null) {
         if (currentProfile.webDavUsername !== String(savedProfile.username || "")) dirtyKeys.add("webDavUsername");
         if (currentProfile.webDavPassword !== String(savedProfile.password || "")) dirtyKeys.add("webDavPassword");
     }
+    const patch = await collectManualSettingPatch(root, dirtyKeys);
     /** @type {string | null} */
     let nextWebDavUrl = null;
     /** @type {string | null} */
@@ -289,28 +291,28 @@ export async function saveSettingForm(dependencies, layerRoot = null) {
         }
         const currentTrusted = new Set(Array.isArray(dependencies.settings.snapshot().trustedLocalOrigins) ? dependencies.settings.snapshot().trustedLocalOrigins : []);
         if (nextWebDavOrigin && !currentTrusted.has(nextWebDavOrigin)) {
-            const authorized = await new Promise((resolve) => dependencies.utilities.q(null, `仅授权 WebDAV 精确来源：${nextWebDavOrigin}，是否继续？`, () => resolve(true), () => resolve(false)));
+            const originToAuthorize = nextWebDavOrigin;
+            const authorized = await new Promise((resolve) => dependencies.utilities.q(null, `授权此 WebDAV 地址？仅允许访问 ${escapeHtml(originToAuthorize)}`, () => resolve(true), () => resolve(false), { confirmText: "授权", cancelText: "取消" }));
             if (!authorized) return { canceled: true };
         }
     }
 
-    const webdavDirty = !dirtyKeys || ["webDavUrl", "webDavUsername", "webDavPassword"].some((key) => dirtyKeys.has(key));
-    if (webdavDirty && dependencies.webdav?.saveProfile) {
-        await dependencies.webdav.saveProfile({
-            ...(!dirtyKeys || dirtyKeys.has("webDavUrl") ? { url: String(root.find("#webDavUrl").val() || "").trim() } : {}),
-            ...(!dirtyKeys || dirtyKeys.has("webDavUsername") ? { username: String(root.find("#webDavUsername").val() || "") } : {}),
-            ...(!dirtyKeys || dirtyKeys.has("webDavPassword") ? { password: String(root.find("#webDavPassword").val() || "") } : {}),
-        });
-    }
-    const patch = await collectManualSettingPatch(root, dirtyKeys);
-    await dependencies.settings.update((/** @type {Record<string, any>} */ draft) => {
+    const applySettingPatch = (/** @type {Record<string, any>} */ draft) => {
         Object.assign(draft, patch);
         if (nextWebDavOrigin) {
             const origins = new Set(Array.isArray(draft.trustedLocalOrigins) ? draft.trustedLocalOrigins : []);
             origins.add(nextWebDavOrigin);
             draft.trustedLocalOrigins = [ ...origins ];
         }
-    });
+    };
+    const webdavDirty = !dirtyKeys || ["webDavUrl", "webDavUsername", "webDavPassword"].some((key) => dirtyKeys.has(key));
+    if (webdavDirty && dependencies.webdav?.saveProfile) {
+        await dependencies.webdav.saveProfile({
+            ...(!dirtyKeys || dirtyKeys.has("webDavUrl") ? { url: String(root.find("#webDavUrl").val() || "").trim() } : {}),
+            ...(!dirtyKeys || dirtyKeys.has("webDavUsername") ? { username: String(root.find("#webDavUsername").val() || "") } : {}),
+            ...(!dirtyKeys || dirtyKeys.has("webDavPassword") ? { password: String(root.find("#webDavPassword").val() || "") } : {}),
+        }, applySettingPatch);
+    } else await dependencies.settings.update(applySettingPatch);
     root.data("jhsDirtyManualKeys", new Set());
 
     const keywordErrors = [];
@@ -443,29 +445,21 @@ async function collectManualSettingPatch(root, dirtyKeys = null) {
 function addLabelTag(dependencies, container, text, root) {
     const target = root.find(`${container} .tag-box`);
     const value = String(text);
-    let node;
+    const node = dependencies.jquery("<span>").addClass("keyword-label").attr("data-keyword", value);
     if (/^[a-z]{2,}-/i.test(value) && r) {
-        node = dependencies.jquery("<a>")
-            .addClass("keyword-label keyword-label--link")
-            .attr("data-keyword", value)
-            .attr("href", `/video_codes/${value.replace("-", "")}`)
-            .attr("target", "_blank");
-    } else {
-        node = dependencies.jquery("<div>")
-            .addClass("keyword-label")
-            .attr("data-keyword", value);
-    }
-    node.append(dependencies.document.createTextNode(value));
-    node.append(dependencies.jquery("<span>").addClass("keyword-remove").text("×"));
+        node.append(dependencies.jquery("<a>").addClass("keyword-label--link")
+            .attr("href", `/video_codes/${value.replace("-", "")}`).attr("target", "_blank").attr("rel", "noopener noreferrer").text(value));
+    } else node.append(dependencies.document.createTextNode(value));
+    node.append(dependencies.jquery('<button type="button" class="keyword-remove jhs-btn jhs-btn--ghost"></button>').attr("aria-label", `移除屏蔽词“${value}”`).append(getIcon("x")));
     const dirtyKey = container === "#reviewKeywordContainer" ? "jhsDirtyReviewKeywords" : "jhsDirtyTitleKeywords";
     node.find(".keyword-remove").click(((/** @type {any} */ event) => {
         event.stopPropagation(), event.preventDefault();
         const current = dependencies.jquery(event.currentTarget);
         const keyword = current.closest(".keyword-label").attr("data-keyword").split(" ")[0];
-        dependencies.utilities.q(event, `是否移除屏蔽词  ${escapeHtml(keyword)}?`, (async () => {
-            current.parent().remove();
+        dependencies.utilities.q(event, `移除屏蔽词“${escapeHtml(keyword)}”？保存后生效`, (async () => {
+            current.closest(".keyword-label").remove();
             root.data(dirtyKey, true);
-        }));
+        }), null, { confirmText: "移除", cancelText: "取消" });
     }));
     target.append(node);
 }

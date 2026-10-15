@@ -2,6 +2,15 @@
 
 import { normalizeCarNum } from "../../core/constants.js";
 import { mapLimit } from "../../core/feature-helpers.js";
+import { PRODUCT_NAMES } from "../../core/product-names.js";
+
+/** @type {Record<string, string>} */
+const SITE_NAMES = {
+    javTrailersBtn: PRODUCT_NAMES.javtrailers, "123AvBtn": PRODUCT_NAMES.av123,
+    jableBtn: PRODUCT_NAMES.jable, avgleBtn: PRODUCT_NAMES.avgle, missAvBtn: PRODUCT_NAMES.missav,
+    supJavBtn: PRODUCT_NAMES.supjav, javDbBtn: PRODUCT_NAMES.javdb, javBusBtn: PRODUCT_NAMES.javbus,
+    fanzaBtn: PRODUCT_NAMES.dmm,
+};
 
 /** @typedef {any} JQueryHandle Legacy jQuery runtime handle. */
 /** @typedef {{ id: string, providerId?: string, noHandle?: boolean, condition?: (sourceCarNum?: string | null) => boolean, searchUrl?: (carNum: string) => string, sourceCarNum?: string | null, baseUrl?: string }} SiteConfig */
@@ -51,15 +60,15 @@ export class OtherSitesController {
                 .jhs-site-list, [data-jhs-role="site-checkboxes"], #siteCheckboxes { display:flex; flex-wrap:wrap; gap:var(--jhs-space-2); }
                 .site-btn { position:relative; }
                 .site-btn::before { width:7px; height:7px; border-radius:50%; background:var(--jhs-brand-color,var(--jhs-text-faint)); content:""; }
-                [data-jhs-site-id="javTrailersBtn"],#javTrailersBtn { --jhs-brand-color:#d4a72c; } [data-jhs-site-id="123AvBtn"],#123AvBtn { --jhs-brand-color:#e05d44; }
-                [data-jhs-site-id="jableBtn"],#jableBtn { --jhs-brand-color:#c94556; } [data-jhs-site-id="avgleBtn"],#avgleBtn { --jhs-brand-color:#4677c8; }
-                [data-jhs-site-id="missAvBtn"],#missAvBtn { --jhs-brand-color:#8b5cf6; } [data-jhs-site-id="supJavBtn"],#supJavBtn { --jhs-brand-color:#ef6c35; }
-                [data-jhs-site-id="javDbBtn"],#javDbBtn { --jhs-brand-color:#2684ff; } [data-jhs-site-id="javBusBtn"],#javBusBtn { --jhs-brand-color:#cc3d3d; } [data-jhs-site-id="fanzaBtn"],#fanzaBtn { --jhs-brand-color:#ea4c89; }
+                [data-jhs-site-id="javTrailersBtn"],#javTrailersBtn { --jhs-brand-color:var(--jhs-site-javtrailers); } [data-jhs-site-id="123AvBtn"],#123AvBtn { --jhs-brand-color:var(--jhs-site-av123); }
+                [data-jhs-site-id="jableBtn"],#jableBtn { --jhs-brand-color:var(--jhs-site-jable); } [data-jhs-site-id="avgleBtn"],#avgleBtn { --jhs-brand-color:var(--jhs-site-avgle); }
+                [data-jhs-site-id="missAvBtn"],#missAvBtn { --jhs-brand-color:var(--jhs-site-missav); } [data-jhs-site-id="supJavBtn"],#supJavBtn { --jhs-brand-color:var(--jhs-site-supjav); }
+                [data-jhs-site-id="javDbBtn"],#javDbBtn { --jhs-brand-color:var(--jhs-site-javdb); } [data-jhs-site-id="javBusBtn"],#javBusBtn { --jhs-brand-color:var(--jhs-site-javbus); } [data-jhs-site-id="fanzaBtn"],#fanzaBtn { --jhs-brand-color:var(--jhs-site-dmm); }
                 .site-btn.is-checking { opacity:.65; pointer-events:none; }
                 .site-btn.is-available { border-color:var(--jhs-status-down-text); background:var(--jhs-status-down-tint); }
                 .site-btn.is-unavailable { border-color:var(--jhs-status-filter-text); background:var(--jhs-status-filter-tint); }
                 .site-btn.is-domain-error { border-color:var(--jhs-status-watch-text); background:var(--jhs-status-watch-tint); }
-                .site-tag { margin-left:var(--jhs-space-1); padding:1px var(--jhs-space-1); border-radius:var(--jhs-radius-pill); background:var(--jhs-surface-2); color:var(--jhs-text-muted); font-size:var(--jhs-font-size-xs); }
+                .site-tag { margin-left:var(--jhs-space-1); padding:var(--jhs-space-half) var(--jhs-space-1); border-radius:var(--jhs-radius-pill); background:var(--jhs-surface-2); color:var(--jhs-text-muted); font-size:var(--jhs-font-size-xs); }
                 .jhs-site-option { display:flex; align-items:center; gap:var(--jhs-space-2); }
             </style>`;
     }
@@ -125,9 +134,9 @@ export class OtherSitesController {
         configs.forEach((config => {
             if (config.condition && !1 === config.condition(config.sourceCarNum)) return;
             const button = this.$('<a target="_blank" class="site-btn jhs-btn jhs-btn--secondary"><span></span></a>').attr("data-jhs-site-id", config.id).toggleClass("jhs-is-hidden", !enabled.includes(config.id));
-            button.find("span").text(config.id.replace("Btn", "")), list.append(button);
+            button.find("span").text(SITE_NAMES[config.id] ?? "第三方站点"), list.append(button);
         }));
-        list.append('<button type="button" class="site-btn jhs-btn jhs-btn--primary" data-jhs-role="detect-sites"><span>检测外部站点</span></button>', '<button type="button" class="site-btn jhs-btn jhs-btn--secondary" data-jhs-role="site-settings"><span>设置</span></button>'), target.append(box, settings), view.box = box, view.settings = settings;
+        list.append('<button type="button" class="site-btn jhs-btn jhs-btn--secondary" data-jhs-role="detect-sites"><span>检测第三方站点</span></button>', '<button type="button" class="site-btn jhs-btn jhs-btn--secondary" data-jhs-role="site-settings"><span>设置</span></button>'), target.append(box, settings), view.box = box, view.settings = settings;
         if (!e) return box.find(".site-btn").removeAttr("href").attr({ "aria-disabled": "true", title: "番号不可用" }), box.find('[data-jhs-role="detect-sites"]').prop("disabled", !0), this.renderSettingsArea(view), this.setupEventListeners(view), void this.log("跳过第三方站点解析：番号不可用");
         box.find('[data-jhs-site-id="javTrailersBtn"]').on("click", ((/** @type {JQuerySiteEvent} */ event) => {
             event.preventDefault();
@@ -148,12 +157,12 @@ export class OtherSitesController {
         if (!(e = normalizeCarNum(e))) return n.removeAttr("href").attr({ "aria-disabled": "true", title: "番号不可用" }), void this.setSiteState(n, "idle");
         if (t.providerId) {
             const url = this.movie.searchUrl(t.providerId, { carNum: e });
-            return void (url ? (n.attr("href", url), n.attr("title", "点击前往外部搜索页"), this.setSiteState(n, "idle")) : (n.attr("title", "外部站点地址不可用"), this.setSiteState(n, "domain-error")));
+            return void (url ? (n.attr("href", url), n.attr("title", "前往第三方搜索页"), this.setSiteState(n, "idle")) : (n.attr("title", "第三方站点地址不可用"), this.setSiteState(n, "domain-error")));
         }
         try {
-            view.isActive?.() !== false && t.searchUrl && (n.attr("href", t.searchUrl(e)), n.attr("title", "点击前往外部搜索页；点击检测按钮后才自动检测"), this.setSiteState(n, "idle"));
+            view.isActive?.() !== false && t.searchUrl && (n.attr("href", t.searchUrl(e)), n.attr("title", "前往第三方搜索页，点击检测后检查"), this.setSiteState(n, "idle"));
         } catch (a) {
-            view.isActive?.() !== false && (n.attr("title", "外部站点地址未配置或不可用"), this.setSiteState(n, "domain-error"));
+            view.isActive?.() !== false && (n.attr("title", "第三方站点地址未设置或不可用"), this.setSiteState(n, "domain-error"));
         }
     }
     /** @param {string | null} e @param {OtherSiteView} [view] */
@@ -188,7 +197,7 @@ export class OtherSitesController {
             const searchUrl = this.movie.searchUrl(t.providerId, { carNum: e });
             n.attr("href", result?.url || searchUrl || "");
             this.setSiteState(n, result?.url ? "available" : "unavailable");
-            if (!result?.url) n.attr("title", "未查询到, 点击前往搜索页");
+            if (!result?.url) n.attr("title", "未找到影片，点击前往搜索页");
         } catch (error) {
             if (view.isActive?.() !== false) n.attr("title", "请求失败。"), this.setSiteState(n, "unavailable"), this.log(`检测第三方资源失败, ${t.id.replace("Btn", "")}`, error);
         } else try {
@@ -212,19 +221,19 @@ export class OtherSitesController {
                 type: "multiple",
                 url: l,
                 time: m
-            }) : (n.attr("href", l), n.attr("title", "未查询到, 点击前往搜索页"), this.setSiteState(n, "unavailable"));
+            }) : (n.attr("href", l), n.attr("title", "未找到影片，点击前往搜索页"), this.setSiteState(n, "unavailable"));
             if (p) {
                 const latestRaw = storage.getLocal(a), e = latestRaw ? JSON.parse(latestRaw) : {};
                 e[s] = p, storage.setLocal(a, JSON.stringify(e));
             }
             g && n.append(g);
         } catch (a) {
-            const e = String(a), i = t.id.replace("Btn", "");
+            const i = t.id.replace("Btn", "");
             const code = /** @type {{ code?: string }} */ (a)?.code;
-            "CIRCUIT_OPEN" === code ? (n.attr("title", e), this.setSiteState(n, "domain-error"), this.log(`检测第三方资源跳过, ${i} 已熔断`)) :
-            "CF_BLOCKED" === code ? (n.attr("title", "请求失败：Cloudflare 安全检查。"), this.setSiteState(n, "domain-error"), this.log(`检测第三方资源失败, ${i} 需Cloudflare安全检查`)) :
-            "INVALID_URL" === code ? (n.attr("title", "域名失效"), this.setSiteState(n, "domain-error"), this.log(`检测第三方资源失败, ${i} 域名或重定向无效`)) :
-            "NOT_FOUND" === code ? (n.attr("title", "未查询到, 点击前往搜索页"), this.setSiteState(n, "unavailable")) :
+            "CIRCUIT_OPEN" === code ? (n.attr("title", "此来源暂不可用，请稍后重试"), this.setSiteState(n, "domain-error"), this.log(`检测第三方资源跳过, ${i} 已熔断`, a)) :
+            "CF_BLOCKED" === code ? (n.attr("title", "站点安全验证未通过，请稍后重试"), this.setSiteState(n, "domain-error"), this.log(`检测第三方资源失败, ${i} 需Cloudflare安全检查`, a)) :
+            "INVALID_URL" === code ? (n.attr("title", "站点地址不可用，请在设置中检查"), this.setSiteState(n, "domain-error"), this.log(`检测第三方资源失败, ${i} 域名或重定向无效`, a)) :
+            "NOT_FOUND" === code ? (n.attr("title", "未找到影片，点击前往搜索页"), this.setSiteState(n, "unavailable"), this.log(`检测第三方资源未找到, ${i}`, a)) :
             (this.log(`检测第三方资源失败, ${i}`, a), n.attr("title", "请求失败。"), this.setSiteState(n, "unavailable"));
         }
     }
@@ -276,7 +285,7 @@ export class OtherSitesController {
         const enabled = this.getEnabledSites(), target = view.root.find('[data-jhs-role="site-checkboxes"],#siteCheckboxes').first().empty();
         view.configs.forEach((config => {
             const input = this.$('<input type="checkbox">').attr("data-site-id", config.id).prop("checked", enabled.includes(config.id));
-            target.append(this.$('<label class="jhs-site-option"></label>').append(input, this.$("<span></span>").text(config.id.replace("Btn", ""))));
+            target.append(this.$('<label class="jhs-site-option"></label>').append(input, this.$("<span></span>").text(SITE_NAMES[config.id] ?? "第三方站点")));
         }));
     }
     /** @param {OtherSiteView} [view] */

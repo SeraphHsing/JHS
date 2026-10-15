@@ -44,7 +44,7 @@ export class TaskCompatibilityBean {
     get lastCheckNewVideoNextKey() { return "jhs_time_checkNewVideo_next"; }
 
     /** @param {string} name */
-    getTaskStatusSnapshot(name) { return this.service?.getTaskStatusSnapshot(name) ?? { name, state: "idle", completedAt: null, attemptAt: null, nextAt: 0, isPending: false, pendingUntil: null }; }
+    getTaskStatusSnapshot(name) { return this.service?.getTaskStatusSnapshot(name) ?? { name, ready: false, state: "idle", completedAt: null, attemptAt: null, nextAt: 0, isPending: false, pendingUntil: null }; }
 
     /** @param {boolean} [force] */
     async checkBlacklist(force) { return (await this.waitForService()).checkBlacklist(force); }

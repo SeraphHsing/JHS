@@ -104,7 +104,7 @@ describe("115 domain", () => {
         settings.setEnabled(true);
         await vi.waitFor(() => expect(requests).toHaveLength(2));
         requests[1].resolve([]);
-        await vi.waitFor(() => expect(summary.querySelector(".jhs-115-match")?.textContent).toBe("115匹配：未匹配 重试"));
+        await vi.waitFor(() => expect(summary.querySelector(".jhs-115-match")?.textContent).toBe("115 匹配：未匹配 重试"));
         scope.dispose();
     });
 

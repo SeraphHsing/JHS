@@ -106,6 +106,7 @@ describe("desktop quick setting surface root selection", () => {
 
         jq(".mini-setting-box").trigger("mouseover");
         await flush();
+        await Promise.all([...plugin._desktopQuickSurfaces.values()].map(surface => surface.loading));
 
         const mini = jq(".mini-setting-box .mini-simple-setting");
         const normal = jq(".setting-box .simple-setting");
@@ -118,12 +119,13 @@ describe("desktop quick setting surface root selection", () => {
     });
 
     it("binds the normal surface when navbar search is hidden", async () => {
-        const { jq, settings } = await createHarness({ searchHidden: true });
+        const { jq, settings, plugin } = await createHarness({ searchHidden: true });
         expect(jq(".setting-box").css("display")).not.toBe("none");
         expect(jq(".mini-setting-box").css("display")).toBe("none");
 
         jq(".setting-box").trigger("mouseover");
         await flush();
+        await Promise.all([...plugin._desktopQuickSurfaces.values()].map(surface => surface.loading));
 
         const normal = jq(".setting-box .simple-setting");
         const mini = jq(".mini-setting-box .mini-simple-setting");
@@ -135,14 +137,22 @@ describe("desktop quick setting surface root selection", () => {
         expect(normal.find('[data-jhs-setting="enableLoadScreenShot"] input').is(":checked")).toBe(true);
     });
 
-    it("drops a pending settings template load when its hover surface closes", async () => {
-        const { jq } = await createHarness();
+    it("hides and reuses the initialized form after the 200ms hover delay", async () => {
+        const { jq, plugin } = await createHarness();
         const host = jq(".mini-setting-box .mini-simple-setting");
         jq(".mini-setting-box").trigger("mouseover");
         jq(".mini-setting-box").trigger("mouseleave");
         await flush();
+        await Promise.all([...plugin._desktopQuickSurfaces.values()].map(surface => surface.loading));
 
-        expect(host.data("jhsQuickSettingBinding")).toBeFalsy();
-        expect(host.children()).toHaveLength(0);
+        await vi.waitFor(() => expect(host.data("jhsQuickSettingBinding")).toBeTruthy());
+        const binding = host.data("jhsQuickSettingBinding");
+        await new Promise(resolve => setTimeout(resolve, 220));
+        expect(host.css("display")).toBe("none");
+        jq(".mini-setting-box").trigger("mouseover");
+        await flush();
+        await Promise.all([...plugin._desktopQuickSurfaces.values()].map(surface => surface.loading));
+        expect(host.css("display")).not.toBe("none");
+        expect(host.data("jhsQuickSettingBinding")).toBe(binding);
     });
 });

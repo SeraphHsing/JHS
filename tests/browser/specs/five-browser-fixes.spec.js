@@ -11,11 +11,15 @@ test("JavBus mounts settings on list and detail routes", async ({ page }, info) 
   await expect(page.locator("#setting-btn")).toBeVisible();
   await page.locator("#setting-btn").click();
   await expect(page.locator(".layui-layer #saveBtn")).toBeVisible();
+  await expect(page.locator(".layui-layer #saveBtn")).toBeInViewport();
   await page.keyboard.press("Escape");
   await page.goto("https://www.javbus.com/ABC-123", { waitUntil: "domcontentloaded" });
   await injectUserscriptRuntime(page);
   await expect(page.locator("#setting-btn")).toHaveCount(1);
   await expect(page.locator("#setting-btn")).toBeVisible();
+  await page.locator("#setting-btn").click();
+  await expect(page.locator(".layui-layer #saveBtn")).toBeVisible();
+  await expect(page.locator(".layui-layer #saveBtn")).toBeInViewport();
 });
 
 test("detail magnet search resolves its asynchronous surface", async ({ page }, info) => {

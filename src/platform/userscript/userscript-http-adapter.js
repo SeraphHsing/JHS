@@ -53,21 +53,37 @@ export class UserscriptHttpAdapter {
     /** @param {{url: string, method?: string, headers?: Record<string, string>, body?: unknown, responseType?: string, timeout?: number, signal?: AbortSignal, requestOptions?: Record<string, unknown>}} options */
     requestWithUserscript(options) {
         return new Promise((resolve, reject) => {
-            let settled = false;
+            let settled = false, abortRequested = false, aborted = false;
             /** @type {{abort?: () => void} | void} */
             let handle;
+            /** @type {ReturnType<typeof setTimeout> | null} */
+            let timeoutId = null;
             /** @param {(value: any) => void} callback @param {any} value */
             const finish = (callback, value) => {
-                if (settled) return;
+                if (settled) return false;
                 settled = true;
+                if (timeoutId !== null) clearTimeout(timeoutId);
                 options.signal?.removeEventListener("abort", onAbort);
                 callback(value);
+                return true;
+            };
+            const abortRequest = () => {
+                abortRequested = true;
+                if (!handle || aborted) return;
+                aborted = true;
+                try { handle.abort?.(); } catch { /* The settled result owns cancellation errors. */ }
             };
             const onAbort = () => {
-                handle?.abort?.();
-                finish(reject, new JhsError("ABORTED", "网络请求已取消", { source: "UserscriptHttpAdapter" }));
+                if (finish(reject, new JhsError("ABORTED", "网络请求已取消", { source: "UserscriptHttpAdapter" }))) abortRequest();
             };
-            handle = this.requestImplementation({
+            const onTimeout = () => {
+                if (finish(reject, new JhsError("TIMEOUT", "网络请求超时", { source: "UserscriptHttpAdapter", retryable: true }))) abortRequest();
+            };
+            if (options.signal?.aborted) { onAbort(); return; }
+            options.signal?.addEventListener("abort", onAbort, { once: true });
+            const timeoutMs = Number(options.timeout);
+            if (Number.isFinite(timeoutMs) && timeoutMs > 0) timeoutId = setTimeout(onTimeout, timeoutMs);
+            try { handle = this.requestImplementation({
                 ...options.requestOptions,
                 method: options.method ?? "GET", url: options.url, headers: options.headers,
                 data: options.body, responseType: options.responseType, timeout: options.timeout,
@@ -78,11 +94,11 @@ export class UserscriptHttpAdapter {
                     transportUsed: "gm",
                 }),
                 onerror: (/** @type {unknown} */ cause) => finish(reject, new JhsError("NETWORK_ERROR", "网络请求失败", { source: "UserscriptHttpAdapter", cause, retryable: true })),
-                ontimeout: () => finish(reject, new JhsError("TIMEOUT", "网络请求超时", { source: "UserscriptHttpAdapter", retryable: true })),
+                ontimeout: onTimeout,
                 onabort: () => finish(reject, new JhsError("ABORTED", "网络请求已取消", { source: "UserscriptHttpAdapter" })),
-            });
-            if (options.signal?.aborted) onAbort();
-            else options.signal?.addEventListener("abort", onAbort, { once: true });
+            }); }
+            catch (cause) { finish(reject, new JhsError("NETWORK_ERROR", "网络请求失败", { source: "UserscriptHttpAdapter", cause, retryable: true })); }
+            if (abortRequested) abortRequest();
         });
     }
 }

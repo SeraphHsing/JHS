@@ -1,4 +1,5 @@
-import { prepareDialogOptions } from "./dialog-shell.js";
+import { ownedPopoverRoots } from "./owned-popover.js";
+import { prepareDialogOptions, enhanceDialogButtons } from "./dialog-shell.js";
 import { i, normalizeCarNum } from "./constants.js";
 import { JHS_Z_INDEX } from "./theme.js";
 
@@ -50,9 +51,10 @@ export class Utils {
     }
     openPage(e, t, n, a) {
         n = n ?? !0;
-        const navigation = a && (Object.prototype.hasOwnProperty.call(a, "event") || Object.prototype.hasOwnProperty.call(a, "newTab")) ? a : { event: a }, event = navigation.event;
+        const navigation = a && (Object.prototype.hasOwnProperty.call(a, "event") || Object.prototype.hasOwnProperty.call(a, "newTab") || Object.prototype.hasOwnProperty.call(a, "preview")) ? a : { event: a }, event = navigation.event;
         const destination = new URL(e, window.location.origin), carNum = normalizeCarNum(t), isMovieDetail = /^\/v\/[^/]+/.test(destination.pathname);
         isMovieDetail && carNum && destination.searchParams.set("jhsCarNum", carNum);
+        if (navigation.preview) destination.searchParams.set("autoPlay", "1");
         if (navigation.newTab || event && (event.ctrlKey || event.metaKey || 1 === event.button)) return void GM_openInTab(destination.href, {
             insert: 0
         });
@@ -154,23 +156,26 @@ export class Utils {
         const binding = this.iframeEscBindings.get(t);
         binding && this.releaseIframeEscBinding(t, binding);
     }
-    /** 将 Tab 焦点限制在弹窗内，并在释放时恢复原焦点。 @param {Element} container */
-    trapFocus(container) {
+    /** 将 Tab 焦点限制在弹窗内，并在释放时恢复原焦点。 @param {Element} container @param {HTMLElement | null} [initialFocus] */
+    trapFocus(container, initialFocus = null) {
         if (!container) return () => {};
         const previous = document.activeElement;
         const selector = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
-        const visible = () => [ ...container.querySelectorAll(selector) ].filter((element => !element.hidden && "true" !== element.getAttribute("aria-hidden") && null !== element.offsetParent));
+        const visible = () => [ ...container.querySelectorAll(selector), ...ownedPopoverRoots(container).flatMap(root => [...root.querySelectorAll(selector)]) ].filter((element => !element.hidden && "true" !== element.getAttribute("aria-hidden") && null !== element.offsetParent));
         const handleKeydown = (/** @type {KeyboardEvent} */ event) => {
-            if ("Tab" !== event.key) return;
+            if ("Tab" !== event.key || !container.contains(event.target) && !ownedPopoverRoots(container).some(root => root.contains(event.target))) return;
             const items = visible();
             if (!items.length) return void event.preventDefault();
             const first = /** @type {HTMLElement} */ (items[0]), last = /** @type {HTMLElement} */ (items[items.length - 1]);
             event.shiftKey && document.activeElement === first ? (event.preventDefault(), last.focus()) : !event.shiftKey && document.activeElement === last && (event.preventDefault(), first.focus());
         };
-        container.addEventListener("keydown", handleKeydown);
-        queueMicrotask((() => /** @type {HTMLElement | undefined} */ (visible()[0])?.focus()));
+        container.ownerDocument.addEventListener("keydown", handleKeydown);
+        queueMicrotask((() => {
+            const items = visible(), target = initialFocus && items.includes(initialFocus) ? initialFocus : items[0];
+            /** @type {HTMLElement | undefined} */ (target)?.focus();
+        }));
         return () => {
-            container.removeEventListener("keydown", handleKeydown);
+            container.ownerDocument.removeEventListener("keydown", handleKeydown);
             previous?.isConnected && "function" == typeof /** @type {HTMLElement} */ (previous).focus && /** @type {HTMLElement} */ (previous).focus();
         };
     }
@@ -242,36 +247,47 @@ export class Utils {
             a && n(e, a);
         })) : clog.error("rightClick(), 必须提供有效的 targetSelector。");
     }
-    q(e, t, n, a) {
-        let o;
-        if (this.isMobileMode()) {
-            o = layer.confirm(t, {
-                title: "提示",
-                btn: [ "确定", "取消" ],
-                shade: 0,
-                zIndex: JHS_Z_INDEX.layer
-            }, (function() {
-                n && n(), layer.close(o);
-            }), (function() {
-                a && a();
-            }));
-        } else {
-            let i, s;
-            e ? (i = e.clientX - 130, s = e.clientY - 120) : (i = window.innerWidth / 2 - 120,
-            s = window.innerHeight / 2 - 120);
-            o = layer.confirm(t, {
-                offset: [ s, i ],
-                title: "提示",
-                btn: [ "确定", "取消" ],
-                shade: 0,
-                zIndex: JHS_Z_INDEX.layer
-            }, (function() {
-                n && n(), layer.close(o);
-            }), (function() {
-                a && a();
-            }));
-        }
+    /** 显式动作标签使用取消在前；保留旧调用的确认与取消回调顺序。 */
+    q(e, t, n, a, options = {}) {
+        let index = null, decided = false, releaseUi = null;
+        const namedAction = options.confirmText != null || options.cancelText != null;
+        const service = this.dialogService;
+        const close = (id = index) => { if (id != null) service ? service.close(id) : layer.close(id); };
+        const accept = (id = index) => {
+            if (decided) return;
+            decided = true;
+            try { n?.(); } finally { close(id); }
+        };
+        const cancel = () => {
+            if (decided) return;
+            decided = true;
+            a?.();
+        };
+        const buttons = namedAction ? [ options.cancelText || "取消", options.confirmText || "确定" ] : [ "确定", "取消" ];
+        const dialogOptions = {
+            title: "提示", btn: buttons, shade: 0, zIndex: JHS_Z_INDEX.layer,
+            ui: { focus: "caller" },
+            ...(options.skin ? { skin: options.skin } : {}),
+            success: (element, id) => {
+                index = id; this.setupEscClose(id);
+                const root = element?.nodeType === 1 ? element : element?.[0] || globalThis.document?.getElementById(`layui-layer${id}`);
+                if (!root?.querySelectorAll) return;
+                root.classList.add("jhs-dialog", "jhs-ui");
+                root.setAttribute("role", "dialog");
+                root.setAttribute("aria-modal", "true");
+                root.setAttribute("aria-label", "提示");
+                const releaseButtons = enhanceDialogButtons(root);
+                const releaseFocus = this.trapFocus(root, root.querySelector(`.layui-layer-btn${namedAction ? "0" : "1"}`));
+                releaseUi = () => { releaseButtons(); releaseFocus?.(); };
+            },
+            end: () => { const release = releaseUi; releaseUi = null; release?.(); if (index != null) this.releaseEscClose(index); cancel(); },
+        };
+        if (!this.isMobileMode()) dialogOptions.offset = [ e ? e.clientY - 120 : window.innerHeight / 2 - 120, e ? e.clientX - 130 : window.innerWidth / 2 - 120 ];
+        if (service) index = service.confirm(t, { ...dialogOptions, ...(namedAction ? { confirmText: options.confirmText, cancelText: options.cancelText } : {}) }, accept, cancel);
+        else index = layer.confirm(t, namedAction ? { ...dialogOptions, skin: [ options.skin, "jhs-confirm-actions" ].filter(Boolean).join(" ") } : dialogOptions, namedAction ? (id) => { try { cancel(); } finally { close(id ?? index); } } : accept, namedAction ? accept : cancel);
     }
+    /** Inject the existing dialog service while keeping bootstrap-free utility callers compatible. */
+    setDialogService(dialog) { this.dialogService = dialog; }
     getNowStr(e = "-", t = ":", n = null) {
         let a;
         a = n ? new Date(n) : new Date;
@@ -385,7 +401,7 @@ export class Utils {
                 textarea.remove(), activeElement?.focus?.();
             }
         }
-        return copied && show.info(`${e}已复制到剪贴板, ${text}`), copied;
+        return copied && show.info(e ? `${e}已复制` : "已复制"), copied;
     }
     htmlTo$dom(e) {
         const t = new DOMParser;

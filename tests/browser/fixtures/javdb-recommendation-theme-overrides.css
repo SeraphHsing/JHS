@@ -1,0 +1,7 @@
+/* JavDB app-21262677.css: live dark-theme rule that overrides native message headers. */
+:root[data-theme="dark"] .message-header,
+:root[data-theme="dark"] .pagination-link,
+:root[data-theme="dark"] .pagination-next,
+:root[data-theme="dark"] .pagination-previous {
+    background-color: #4a4a4a !important;
+}

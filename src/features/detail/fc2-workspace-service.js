@@ -1,5 +1,7 @@
 // @ts-check
 
+import { PRODUCT_NAMES } from "../../core/product-names.js";
+
 import { createStateActions } from "../../ui/detail/state-actions.js";
 
 import { _, k, m, v, y } from "../../core/constants.js";
@@ -179,13 +181,17 @@ export class Fc2WorkspaceService {
     }
     /** @param {Fc2DetailContext} context */
     initializeWorkspace(context) {
-        const summary = $('<div class="jhs-fc2-summary"><div class="jhs-fc2-preview" data-jhs-role="main-preview"></div><div class="jhs-fc2-summary__body"><div data-jhs-role="summary-content"><div class="jhs-fc2-state">正在加载影片信息…</div></div></div></div>'), toolbar = $('<div class="jhs-fc2-toolbar" role="toolbar" aria-label="影片操作"></div>');
+        const summary = $('<div class="jhs-fc2-summary"><div class="jhs-fc2-preview" data-jhs-role="main-preview"></div><div class="jhs-fc2-summary__body"><div data-jhs-role="summary-content"></div></div></div>'), toolbar = $('<div class="jhs-fc2-toolbar" role="toolbar" aria-label="影片操作"></div>');
+        renderFc2State(summary.find('[data-jhs-role="summary-content"]'), "加载中…");
         toolbar.append(createStateActions());
-        toolbar.append('<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="javdb-want" aria-pressed="false" disabled>JavDB 想看（关联中）</button>', '<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="subtitlecat">字幕 (SubtitleCat)</button>', '<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="xunlei">字幕 (迅雷)</button>'), summary.find(".jhs-fc2-summary__body").append(toolbar), context.getSlot("summary").append(summary);
+        toolbar.append('<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="javdb-want" aria-pressed="false" disabled>JavDB 想看（关联中）</button>', '<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="subtitlecat">字幕（SubtitleCat）</button>', '<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="xunlei">字幕（迅雷）</button>'), summary.find(".jhs-fc2-summary__body").append(toolbar), context.getSlot("summary").append(summary);
         const gallery = $('<div class="jhs-fc2-gallery-grid" data-jhs-role="gallery-grid"></div>'), screenshot = $('<div class="jhs-fc2-screenshot" data-jhs-role="screenshot"></div>');
-        gallery.on(`click${context.namespace}`, ".jhs-fc2-gallery-item", ((/** @type {MouseEvent} */ event) => {
-            const image = $(event.currentTarget).find("img")[0];
-            image && (/** @type {any} */ (globalThis)).showImageViewer(image, "", { galleryRoot: gallery[0] });
+        gallery.on(`click${context.namespace}`, ".jhs-fc2-gallery-item", (async (/** @type {MouseEvent} */ event) => {
+            const trigger = event.currentTarget, image = $(trigger).find("img")[0];
+            const scope = await this.getRuntimeService("scope")();
+            if (!context.isAlive() || scope.disposed) return;
+            const session = image && (/** @type {any} */ (globalThis)).showImageViewer(image, "", { imageKind:"photo", galleryRoot: gallery[0], owner: context.root[0], trigger, scope });
+            if (session) context.addObserver({ disconnect: () => session.close(false) });
         }));
         context.getSlot("gallery").append(gallery, screenshot);
         const resources = $('<div class="jhs-fc2-resource-stack"></div>'), nativeGroup = this.createResourceGroup("站内磁力", "native-magnets"), sitesGroup = this.createResourceGroup("第三方站点", "other-sites"), hubGroup = this.createResourceGroup("更多磁力来源", "magnet-hub"), hubButton = $('<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="magnet-hub" aria-expanded="false">展开磁力搜索</button>');
@@ -341,7 +347,7 @@ export class Fc2WorkspaceService {
         }).catch((/** @type {unknown} */ error) => {
             if (!context.isAlive() || generation !== context.otherSiteGeneration) return;
             sitesGroup.show();
-            renderFc2State(context.root.find('[data-jhs-role="other-sites"]'), "外部站点加载失败");
+            renderFc2State(context.root.find('[data-jhs-role="other-sites"]'), "第三方站点加载失败");
             this.logger.error("FC2 外部站点加载失败", error);
         });
     }
@@ -397,15 +403,15 @@ export class Fc2WorkspaceService {
         try {
             const movieId = await movieIdPromise;
             if (!context.isAlive()) return;
-            if (!movieId) return void button.prop("disabled", !0).text("JavDB 暂无对应作品");
+            if (!movieId) return void button.prop("disabled", !0).text(`${PRODUCT_NAMES.javdb} 暂无对应影片`);
             try {
                 const alreadyWanted = await getJavDbWantWatchState(movieId);
                 if (!context.isAlive()) return;
-                if (alreadyWanted) return void button.prop("disabled", !0).attr("aria-pressed", "true").text("已在 JavDB 想看");
+                if (alreadyWanted) return void button.prop("disabled", !0).attr("aria-pressed", "true").text(`已在 ${PRODUCT_NAMES.javdb} 想看`);
             } catch (error) { try { this.logger.warn("读取 JavDB 想看状态失败，保留手动操作", error); } catch { /* keep manual action available */ } }
-            button.prop("disabled", !1).text("JavDB 想看").off(`click${context.namespace}`).on(`click${context.namespace}`, (() => void this.submitJavDbWant(context, movieId, button)));
+            button.prop("disabled", !1).text(`${PRODUCT_NAMES.javdb} 想看`).off(`click${context.namespace}`).on(`click${context.namespace}`, (() => void this.submitJavDbWant(context, movieId, button)));
         } catch (error) {
-            context.isAlive() && button.prop("disabled", !1).text("JavDB 关联失败，重试").off(`click${context.namespace}`).on(`click${context.namespace}`, (() => void this.configureJavDbWantButton(context, this.resolveMovieId(context.carNum)))), this.logger.error("FC2 JavDB 想看关联失败", error);
+            context.isAlive() && button.prop("disabled", !1).text(`${PRODUCT_NAMES.javdb} 关联失败，重试`).off(`click${context.namespace}`).on(`click${context.namespace}`, (() => void this.configureJavDbWantButton(context, this.resolveMovieId(context.carNum)))), this.logger.error("FC2 JavDB 想看关联失败", error);
         }
     }
     /** @param {Fc2DetailContext} context @param {string} movieId @param {JQueryHandle} button */
@@ -413,7 +419,7 @@ export class Fc2WorkspaceService {
     async submitJavDbWant(context, movieId, button) {
         if (!context.isAlive() || button.data("jhsBusy") || "true" === button.attr("aria-pressed")) return;
         if (this.submittedWantMovieIds.has(movieId)) {
-            button.attr({ "aria-pressed": "true", "aria-disabled": "false" }).text("已加入 JavDB 想看");
+            button.attr({ "aria-pressed": "true", "aria-disabled": "false" }).text(`已加入 ${PRODUCT_NAMES.javdb} 想看`);
             return;
         }
         if (this.submittingWantMovieIds.has(movieId)) return;
@@ -427,7 +433,7 @@ export class Fc2WorkspaceService {
                 if (!context.isAlive()) return;
                 const normalizedError = /** @type {{ code?: string, message?: string }} */ (error);
                 if ("LOGIN_REQUIRED" === normalizedError?.code) {
-                    button.attr("aria-disabled", "false").text("JavDB 想看");
+                    button.attr("aria-disabled", "false").text(`${PRODUCT_NAMES.javdb} 想看`);
                     return openJavDbLoginDialog({
                         dialog: this.getRuntimeService("dialog"), account: this.getRuntimeService("account"),
                         credential: this.getRuntimeService("credential"), getScope: this.getRuntimeService("scope"),
@@ -435,13 +441,13 @@ export class Fc2WorkspaceService {
                         onSuccess: () => this.submitJavDbWant(context, movieId, button),
                     });
                 }
-                button.attr("aria-disabled", "false").text("JavDB 想看"), show.error(normalizedError?.message || "加入 JavDB 想看失败"), this.logger.error("加入 JavDB 想看失败", error);
+                button.attr("aria-disabled", "false").text(`${PRODUCT_NAMES.javdb} 想看`), show.error(`加入 ${PRODUCT_NAMES.javdb} 想看失败`), this.logger.error("加入 JavDB 想看失败", error);
                 return;
             }
             this.submittedWantMovieIds.add(movieId);
             if (!context.isAlive()) return result;
-            button.attr({ "aria-pressed": "true", "aria-disabled": "false" }).text("已加入 JavDB 想看");
-            try { show.ok("已加入 JavDB 想看"); }
+            button.attr({ "aria-pressed": "true", "aria-disabled": "false" }).text(`已加入 ${PRODUCT_NAMES.javdb} 想看`);
+            try { show.ok(`已加入 ${PRODUCT_NAMES.javdb} 想看`); }
             catch (error) { try { this.logger.warn("JavDB 想看已提交，成功提示失败", error); } catch { /* committed state must win */ } }
             return result;
         } finally {
@@ -451,6 +457,8 @@ export class Fc2WorkspaceService {
     }
     /** @param {Fc2DetailContext} context */
     async fetchAndRenderNativeDetail(context) {
+        const host = context.root.find('[data-jhs-role="summary-content"]');
+        renderFc2State(host, "加载中…");
         try {
             const scope = await this.getRuntimeService("scope")();
             const movie = await this.getRuntimeService("movie").detail({ movieId: context.movieId, carNum: context.carNum, providerId: "javdb" }, { scope });
@@ -459,6 +467,8 @@ export class Fc2WorkspaceService {
             this.renderSummary(context, movie), renderFc2Gallery(context, movie.imageUrls || [], movie.coverUrl || null);
         } catch (error) {
             context.isAlive() && renderFc2State(context.root.find('[data-jhs-role="summary-content"]'), "影片信息加载失败", (() => void this.fetchAndRenderNativeDetail(context))), this.logger.error("FC2 详情加载失败", error);
+        } finally {
+            host.attr("aria-busy", "false");
         }
     }
     /** @param {Fc2DetailContext} context @param {Fc2Movie} movie */
@@ -478,9 +488,9 @@ export class Fc2WorkspaceService {
     async fetchAndRenderNativeMagnets(context, movieId = context.movieId) {
         const host = context.root.find('[data-jhs-role="native-magnets"]');
         host.removeData("jhsNativeEmptyMessage");
-        renderFc2State(host, "正在加载站内磁力…");
+        renderFc2State(host, "加载中…");
         try {
-            if (!movieId) return this.renderNativeMagnetEmpty(context, "JavDB 暂无对应作品");
+            if (!movieId) return this.renderNativeMagnetEmpty(context, `${PRODUCT_NAMES.javdb} 暂无对应影片`);
             const scope = await this.getRuntimeService("scope")();
             const magnets = /** @type {NativeMagnet[]} */ (await this.getRuntimeService("magnet").listNative({ movieId, providerId: "javdb" }, { scope }));
             if (!context.isAlive()) return;
@@ -498,6 +508,7 @@ export class Fc2WorkspaceService {
             }));
             await this.bindNativeMagnetFilter(context, host, assessments.some((item => item.highQuality)));
         } catch (error) { context.isAlive() && renderFc2State(host, "站内磁力加载失败", (() => void this.fetchAndRenderNativeMagnets(context, movieId))), this.logger.error("FC2 磁力加载失败", error); }
+        finally { host.attr("aria-busy", "false"); }
     }
     /** Offer external search without making requests while rendering a native empty state. */
     /** @param {Fc2DetailContext} context @param {string} message */
@@ -507,11 +518,11 @@ export class Fc2WorkspaceService {
         host.data("jhsNativeEmptyMessage", message);
         renderFc2State(host, message);
         if (!this.featureMagnetHubAdapter) {
-            host.append($("<p></p>").text("外部磁力搜索未启用，请在设置中启用磁力搜索功能"));
+            host.append($("<p></p>").text("第三方磁力搜索已关闭，请在设置中开启"));
             return;
         }
-        host.append($("<p></p>").text("站内结果不包含 Sukebei 等外部来源，可继续查询已启用的来源。"),
-            $('<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="search-external-magnets">搜索外部磁力</button>').on(`click${context.namespace}`, () => void context.openMagnetHub?.(true)));
+        host.append($("<p></p>").text("可继续搜索已启用的第三方磁力来源"),
+            $('<button type="button" class="jhs-btn jhs-btn--secondary" data-jhs-action="search-external-magnets">搜索第三方磁力</button>').on(`click${context.namespace}`, () => void context.openMagnetHub?.(true)));
     }
     /** @param {Fc2DetailContext} context @param {JQueryHandle} host @param {boolean} hasMatch */
     async bindNativeMagnetFilter(context, host, hasMatch) {
@@ -532,7 +543,7 @@ export class Fc2WorkspaceService {
         try {
             const movieId = await movieIdPromise;
             if (!context.isAlive()) return;
-            if (!movieId) return this.clearOwnedPanel(context, "reviews"), this.clearOwnedPanel(context, "related"), renderFc2State(context.getSlot("reviews"), "JavDB 暂无对应作品"), renderFc2State(context.getSlot("related"), "JavDB 暂无对应作品");
+            if (!movieId) return this.clearOwnedPanel(context, "reviews"), this.clearOwnedPanel(context, "related"), renderFc2State(context.getSlot("reviews"), `${PRODUCT_NAMES.javdb} 暂无对应影片`), renderFc2State(context.getSlot("related"), `${PRODUCT_NAMES.javdb} 暂无对应影片`);
             this.clearOwnedPanel(context, "reviews"), this.clearOwnedPanel(context, "related");
             const scope = () => this.getRuntimeService("scope")(), relatedPanel = new RelatedPanel({ related: this.getRuntimeService("related"), settings: this.getRuntimeService("settings"), scope }), reviewPanel = new ReviewPanel({ review: this.getRuntimeService("review"), settings: this.getRuntimeService("settings"), storage: this.getRuntimeService("storage"), scope });
             await Promise.allSettled([ reviewPanel.show(movieId, context.getSlot("reviews"), { ownedSection: context.getSection("reviews"), isActive: context.isAlive, ownCleanup: cleanup => context.addObserver({ disconnect: cleanup }) }), relatedPanel.show(context.getSlot("related"), movieId, { ownedSection: context.getSection("related"), isActive: context.isAlive, ownCleanup: cleanup => context.addObserver({ disconnect: cleanup }) }) ]);

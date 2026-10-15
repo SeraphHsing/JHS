@@ -4,7 +4,7 @@ import { _ } from "../../core/constants.js";
 import { mapLimit } from "../../core/feature-helpers.js";
 
 const TRANSLATION_STYLES = `
-    .translated-title { margin-top:var(--jhs-space-2); color:var(--jhs-text); font-size:clamp(16px,1.5vw,18px); font-weight:500; line-height:1.5; }
+    .translated-title { margin-top:var(--jhs-space-2); color:var(--jhs-text); font-size:var(--jhs-font-size-lg); font-weight:var(--jhs-font-weight-normal); line-height:var(--jhs-line-height-ui); }
     .translated-title.is-error { color:var(--jhs-danger); }
 `;
 
@@ -26,6 +26,10 @@ export class ExternalBridgeTranslationController {
         this.listGeneration = 0;
         this.started = false;
         this.disposed = false;
+        /** @type {Map<Element,{node:Element,texts:Array<{node:ChildNode,text:string|null}>,title:string|null}>} */
+        this.recommendationTitles = new Map();
+        /** @type {Map<Element,number>} */
+        this.recommendationPending = new Map();
     }
 
     /** Start the single detail/list translation owner. */
@@ -36,6 +40,14 @@ export class ExternalBridgeTranslationController {
         const releaseStyle = this.styles?.register?.("external-bridge-translation", TRANSLATION_STYLES);
         if (releaseStyle) this.scope.addCleanup(releaseStyle);
         if (this.route === "list") this.listPage?.attachFeatureListTranslationAdapter?.(this);
+        if (this.route === "detail" && this.hostAdapter?.site === "javdb") {
+            this.scope.observe(this.document.body, (/** @type {MutationRecord[]} */ records) => {
+                if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 &&
+                    this.hostAdapter.isDetailRecommendationMutation?.(node)))) {
+                    void this.translateRecommendations().catch(error => this.report(error));
+                }
+            }, {childList:true,subtree:true});
+        }
         this.scope.listen(this.settings, "settings.changed", (/** @type {any} */ event) => {
             const names = /** @type {string[] | undefined} */ (event.detail?.names);
             if (names?.includes("translateTitle")) void this.reconfigure().catch((error) => this.report(error));
@@ -57,8 +69,35 @@ export class ExternalBridgeTranslationController {
             this.revertTranslation();
             return;
         }
-        if (this.route === "detail") await this.translateDetail(this.generation);
+        if (this.route === "detail") await Promise.all([this.translateDetail(this.generation), this.translateRecommendations()]);
         else await this.translateList();
+    }
+
+    async translateRecommendations() {
+        if (!this.isEnabled() || this.disposed || this.scope.disposed) return;
+        const generation = this.generation;
+        /** @type {Element[]} */
+        const items = (this.hostAdapter?.getDetailRecommendationBoundaries?.() ?? []).flatMap((/** @type {any} */ boundary) =>
+            [...boundary.root.querySelectorAll('a.tile-item,.item')]);
+        await mapLimit(items, 3, async item => {
+            if (!this.isCurrent(generation) || this.recommendationTitles.has(item) || this.recommendationPending.has(item)) return;
+            const node = item.querySelector('.video-title');
+            const carNum = item.querySelector('.video-number,.video-title strong')?.textContent?.trim();
+            if (!node || !carNum) return;
+            // Keep number/other children in place; replace only the title text.
+            const textNodes = [...node.childNodes].filter(child => child.nodeType === 3 && child.textContent?.trim());
+            const source = textNodes.map(child => child.textContent ?? '').join('').trim();
+            if (!source) return;
+            this.recommendationPending.set(item, generation);
+            try {
+                const translated = await this.translation.translate(source, {cacheAlias:carNum,scope:this.scope});
+                if (!this.isCurrent(generation) || !item.isConnected || !node.isConnected || !translated || textNodes.map(child => child.textContent ?? '').join('').trim() !== source) return;
+                this.recommendationTitles.set(item, {node,texts:textNodes.map(child=>({node:child,text:child.textContent})),title:node.getAttribute('title')});
+                textNodes.forEach((child,index) => { child.textContent = index === 0 ? ` ${translated} ` : ''; });
+                node.setAttribute('title', String(translated));
+            } catch(error) { if (this.isCurrent(generation)) this.report(error); }
+            finally { if (this.recommendationPending.get(item) === generation) this.recommendationPending.delete(item); }
+        });
     }
 
     async translateList() {
@@ -183,7 +222,7 @@ export class ExternalBridgeTranslationController {
         } catch (error) {
             if (!this.isCurrent(generation) || !title.isConnected || !translatedNode.isConnected) return;
             translatedNode.classList.add("is-error");
-            translatedNode.textContent = `翻译失败: ${error instanceof Error ? error.message : String(error)}`;
+            translatedNode.textContent = "翻译失败，请重试";
             this.report(error);
         }
     }
@@ -195,6 +234,11 @@ export class ExternalBridgeTranslationController {
 
     revertTranslation() {
         this.document.querySelectorAll(".translated-title").forEach((node) => node.remove());
+        for (const {node,texts,title} of this.recommendationTitles.values()) {
+            texts.forEach(child => { child.node.textContent = child.text; });
+            if (title === null) node.removeAttribute('title'); else node.setAttribute('title',title);
+        }
+        this.recommendationTitles.clear(); this.recommendationPending.clear();
         this.revertListTranslations();
     }
 

@@ -41,7 +41,7 @@ export class SubtitleCatController {
                 });
             }
         }
-        if (!matches) this.notifications.error("该番号无字幕!");
+        if (!matches) this.notifications.error("未找到该番号的字幕");
         return true;
     }
 

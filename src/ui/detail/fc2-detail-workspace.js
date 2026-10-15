@@ -52,6 +52,7 @@ export function createFc2DetailContext(root, options = {}) {
         destroy() {
             if (destroyed) return;
             destroyed = !0, workspace.off(namespace).find("*").off(namespace), observers.forEach((observer => observer.disconnect?.())), observers.clear(), workspace.removeData("jhsFc2Context");
+            workspace.find('[aria-busy="true"]').addBack('[aria-busy="true"]').attr("aria-busy", "false");
         }
     };
     workspace.data("jhsFc2Context", context).attr("data-jhs-surface", surface);

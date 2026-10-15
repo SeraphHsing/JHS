@@ -1,4 +1,16 @@
 // @ts-check
+import { getIcon } from "../../core/icons.js";
+import { OwnedPopover } from "../../core/owned-popover.js";
+
+import { PRODUCT_NAMES } from "../../core/product-names.js";
+
+const ACTIVITY_LABELS = Object.freeze({
+    "record-delete": "移除记录", "new-video-decision": "更新新作品处理状态", "new-video-remove": "移除新作品",
+    "history-state": "更新影片状态", "history-batch-state": "批量更新状态", "history-edit": "编辑记录",
+    "javdb-list-import": "导入影片", "list-card-state": "更新影片状态", "list-batch-state": "批量更新状态",
+    "actor-page-block": "屏蔽演员影片", "actor-page-batch-state": "批量更新状态", "offline-mark-downloaded": "标记已下载",
+    "new-video-batch-state": "批量更新新作品", "detail-state": "更新影片状态", "legacy-save": "更新影片状态", "legacy-update": "更新影片状态",
+});
 
 import { b, d, g, h, k, m, normalizeCarNum, p, u, v, y, escapeHtml } from "../../core/constants.js";
 import { hasAnyState, legacyActionToFlag, normalizeStateFlags } from "../../core/state-model.js";
@@ -23,6 +35,7 @@ export function buildCarNumCell(carNum, documentRuntime = document) {
     button.type = "button";
     button.className = "jhs-btn jhs-btn--ghost jhs-btn--sm table-link-param";
     button.textContent = value.substring(0, i + 1);
+    wrapper.className = "jhs-history-car-number";
     wrapper.appendChild(button), wrapper.appendChild(documentRuntime.createTextNode(value.substring(i + 1)));
     return wrapper;
 }
@@ -55,10 +68,12 @@ export function buildActionButtons(record, documentRuntime = document) {
     const toggle = documentRuntime.createElement("button");
     toggle.type = "button", toggle.className = "jhs-btn jhs-btn--ghost sub-btns-toggle";
     toggle.setAttribute("aria-haspopup", "menu"), toggle.setAttribute("aria-expanded", "false");
-    const toggleSpan = documentRuntime.createElement("span"); toggleSpan.textContent = "更多操作"; toggle.appendChild(toggleSpan);
+    const toggleSpan = documentRuntime.createElement("span"); toggleSpan.className="jhs-history-more-label"; toggleSpan.textContent = "更多操作"; toggle.appendChild(toggleSpan);
+    toggle.setAttribute("aria-label","更多操作"); toggle.title="更多操作";
+    const icon=documentRuntime.createElement("span"); icon.className="jhs-history-more-icon"; icon.innerHTML=getIcon("chevron-down"); toggle.appendChild(icon);
     subBtns.appendChild(toggle);
     const menu = documentRuntime.createElement("div");
-    menu.className = "sub-btns-menu", menu.setAttribute("role", "menu");
+    menu.className = "sub-btns-menu jhs-popover", menu.setAttribute("role", "menu");
     /** @type {Array<[string, string, string]>} */
     const menuItems = [ [ "history-editBtn", "编辑", "" ], [ "history-deleteBtn", "移除", "jhs-btn--danger" ], [ "history-hasWatchBtn", k, "" ], [ "history-hasDownBtn", y, "" ], [ "history-favoriteBtn", v, "" ], [ "history-filterBtn", m, "" ] ];
     for (const [ cls, label, extra ] of menuItems) {
@@ -74,7 +89,7 @@ export function buildActionButtons(record, documentRuntime = document) {
 
 /** Static edit-record form; values are back-filled via .val()/.text() so imported data stays inert. @param {{favorite?: boolean, downloaded?: boolean, watched?: boolean, blocked?: boolean}} flags */
 export function buildEditRecordForm(flags) {
-    return `\n            <div class="jhs-layout-8cddc29a">\n                <div class="jhs-layout-da303dcf">\n                    <label class="jhs-layout-27f87d75">番号:</label>\n                    <input type="text" id="edit-carNum" class="jhs-field jhs-history-edit-field" readonly>\n                </div>\n                <div class="jhs-layout-da303dcf">\n                    <label class="jhs-layout-27f87d75">演员 (用空格隔开):</label>\n                    <textarea id="edit-names" class="jhs-textarea jhs-history-edit-field"></textarea>\n                </div>\n                <fieldset class="jhs-layout-da303dcf"><legend class="jhs-layout-27f87d75">状态:</legend>\n                    <label class="jhs-option-row">收藏 <input type="checkbox" id="edit-favorite" class="mini-switch" ${flags.favorite ? "checked" : ""}></label>\n                    <label class="jhs-option-row">已下载 <input type="checkbox" id="edit-downloaded" class="mini-switch" ${flags.downloaded ? "checked" : ""}></label>\n                    <label class="jhs-option-row">已观看 <input type="checkbox" id="edit-watched" class="mini-switch" ${flags.watched ? "checked" : ""}></label>\n                    <label class="jhs-option-row">屏蔽 <input type="checkbox" id="edit-blocked" class="mini-switch" ${flags.blocked ? "checked" : ""}></label>\n                </fieldset>\n                <div class="jhs-layout-da303dcf">\n                    <label class="jhs-layout-27f87d75">链接:</label>\n                    <input type="text" id="edit-url" class="jhs-field jhs-history-edit-field">\n                </div>\n                <div class="jhs-layout-da303dcf">\n                    <label class="jhs-layout-27f87d75">备注:</label>\n                    <textarea id="edit-remark" class="jhs-textarea jhs-history-edit-field"></textarea>\n                </div>\n            </div>\n        `;
+    return `\n            <div class="jhs-layout-8cddc29a">\n                <div class="jhs-layout-da303dcf">\n                    <label class="jhs-layout-27f87d75">番号</label>\n                    <input type="text" id="edit-carNum" class="jhs-field jhs-history-edit-field" readonly>\n                </div>\n                <div class="jhs-layout-da303dcf">\n                    <label class="jhs-layout-27f87d75">演员（用空格分隔）</label>\n                    <textarea id="edit-names" class="jhs-textarea jhs-history-edit-field"></textarea>\n                </div>\n                <fieldset class="jhs-layout-da303dcf"><legend class="jhs-layout-27f87d75">状态</legend>\n                    <label class="jhs-option-row">收藏 <input type="checkbox" id="edit-favorite" class="jhs-checkbox" ${flags.favorite ? "checked" : ""}></label>\n                    <label class="jhs-option-row">已下载 <input type="checkbox" id="edit-downloaded" class="jhs-checkbox" ${flags.downloaded ? "checked" : ""}></label>\n                    <label class="jhs-option-row">已观看 <input type="checkbox" id="edit-watched" class="jhs-checkbox" ${flags.watched ? "checked" : ""}></label>\n                    <label class="jhs-option-row">屏蔽 <input type="checkbox" id="edit-blocked" class="jhs-checkbox" ${flags.blocked ? "checked" : ""}></label>\n                </fieldset>\n                <div class="jhs-layout-da303dcf">\n                    <label class="jhs-layout-27f87d75">链接</label>\n                    <input type="text" id="edit-url" class="jhs-field jhs-history-edit-field">\n                </div>\n                <div class="jhs-layout-da303dcf">\n                    <label class="jhs-layout-27f87d75">备注</label>\n                    <textarea id="edit-remark" class="jhs-textarea jhs-history-edit-field"></textarea>\n                </div>\n            </div>\n        `;
 }
 
 export class HistoryDialogController {
@@ -111,18 +126,20 @@ export class HistoryDialogController {
         this.waitCheckCount = 0;
         this.dialogId = null;
         this.disposed = false;
+        this.historyDialogGeneration = 0;
+        this.historyViewGeneration = 0;
     }
     /** @param {string} value */
     getSourceLabel(value) {
         if (!value) return "";
         const movie = this.movie, settings = this.settings.snapshot();
-        if (movie.matchesProviderUrl("av123", value)) return "123AV";
+        if (movie.matchesProviderUrl("av123", value)) return PRODUCT_NAMES.av123;
         try {
             const origin = new URL(value).origin;
-            if (origin === movie.externalSiteOrigin("javDbBtn", settings)) return "JavDB";
-            if (origin === movie.externalSiteOrigin("javBusBtn", settings)) return "JavBus";
+            if (origin === movie.externalSiteOrigin("javDbBtn", settings)) return PRODUCT_NAMES.javdb;
+            if (origin === movie.externalSiteOrigin("javBusBtn", settings)) return PRODUCT_NAMES.javbus;
         } catch {}
-        return value.includes("javdb") ? "JavDB" : value.includes("javbus") ? "JavBus" : value.includes("123av") ? "123AV" : "其他";
+        return value.includes("javdb") ? PRODUCT_NAMES.javdb : value.includes("javbus") ? PRODUCT_NAMES.javbus : value.includes("123av") ? PRODUCT_NAMES.av123 : "其他";
     }
     get historyRepository() {
         return this._historyRepository;
@@ -131,8 +148,9 @@ export class HistoryDialogController {
     openHistory() {
         if (this.disposed) return undefined;
         if (this.dialogId != null) return this.dialogId;
-        let e = `\n            <div class="jhs-history-layout jhs-history-dialog"> \n                 <div id="filterBox" class="jhs-layout-53809f1e">\n                    <select id="dataType" class="jhs-select-source">\n                        <option value="all" selected>所有</option>\n                        <option value="waitCheck">待鉴定</option>\n                        <option value="filter">${u}</option>\n                        <option value="favorite">${b}</option>\n                        <option value="hasDown">${y}</option>\n                        <option value="hasWatch">${k}</option>\n                    </select>\n                    <input id="searchCarNum" type="text" placeholder="搜索番号|演员" class="jhs-field">\n                    <button type="button" id="clearSearchbtn" class="jhs-btn jhs-btn--secondary jhs-layout-21a4fe43">重置</button>\n                </div>\n                <div id="allSelectBox" class="jhs-layout-66253c00">\n                    <button type="button" class="jhs-btn jhs-btn--dark multiple-history-deleteBtn jhs-layout-7daea5fa"> <span>移除</span> </button>\n                    <button type="button" class="jhs-btn jhs-btn--watch multiple-history-hasWatchBtn jhs-layout-2e003268">标记观看</button>\n                    <button type="button" class="jhs-btn jhs-btn--down multiple-history-hasDownBtn jhs-layout-2e003268">标记下载</button>\n                    <button type="button" class="jhs-btn jhs-btn--fav multiple-history-favoriteBtn jhs-layout-2e003268">标记收藏</button>\n                    <button type="button" class="jhs-btn jhs-btn--filter multiple-history-filterBtn jhs-layout-2e003268">标记屏蔽</button>\n                </div>\n                <div id="table-container"></div>\n            </div>\n        `;
-        e = e.replace('<div id="filterBox"', '<div id="historyViewTabs" class="jhs-segmented" role="tablist"><button type="button" class="jhs-btn jhs-segmented__item active" data-history-view="state">作品状态</button><button type="button" class="jhs-btn jhs-segmented__item" data-history-view="activity">操作记录</button><button type="button" class="jhs-btn jhs-segmented__item" data-history-view="offline">离线任务</button></div><div id="filterBox"');
+        const generation = ++this.historyDialogGeneration;
+        let e = `\n            <div class="jhs-history-layout jhs-history-dialog"> \n                 <div id="filterBox" class="jhs-layout-53809f1e">\n                    <select id="dataType" class="jhs-select-source">\n                        <option value="all" selected>所有</option>\n                        <option value="waitCheck">待鉴定</option>\n                        <option value="filter">${u}</option>\n                        <option value="favorite">${b}</option>\n                        <option value="hasDown">${y}</option>\n                        <option value="hasWatch">${k}</option>\n                    </select>\n                    <input id="searchCarNum" type="text" placeholder="搜索番号、标题或演员" class="jhs-field">\n                    <button type="button" id="clearSearchbtn" class="jhs-btn jhs-btn--secondary jhs-layout-21a4fe43">重置</button>\n                </div>\n                <div id="allSelectBox" class="jhs-layout-66253c00">\n                    <button type="button" class="jhs-btn jhs-btn--dark multiple-history-deleteBtn jhs-layout-7daea5fa"> <span>移除</span> </button>\n                    <button type="button" class="jhs-btn jhs-btn--watch multiple-history-hasWatchBtn jhs-layout-2e003268">标记观看</button>\n                    <button type="button" class="jhs-btn jhs-btn--down multiple-history-hasDownBtn jhs-layout-2e003268">标记下载</button>\n                    <button type="button" class="jhs-btn jhs-btn--fav multiple-history-favoriteBtn jhs-layout-2e003268">标记收藏</button>\n                    <button type="button" class="jhs-btn jhs-btn--filter multiple-history-filterBtn jhs-layout-2e003268">标记屏蔽</button>\n                </div>\n                <div id="table-container"></div>\n            </div>\n        `;
+        e = e.replace('<div id="filterBox"', '<div id="historyViewTabs" class="jhs-segmented" role="tablist"><button type="button" class="jhs-btn jhs-segmented__item active" data-history-view="state">影片状态</button><button type="button" class="jhs-btn jhs-segmented__item" data-history-view="activity">操作记录</button><button type="button" class="jhs-btn jhs-segmented__item" data-history-view="offline">离线任务</button></div><div id="filterBox"');
         this.dialogId = this.dialog.open({
             type: 1,
             title: "鉴定记录",
@@ -143,10 +161,16 @@ export class HistoryDialogController {
             area: this.domUi.getDialogArea("xl"),
             anim: -1,
             success: async (/** @type {any} */ e) => {
+                if (this.disposed || generation !== this.historyDialogGeneration) return;
                 const root = this.jquery(e);
+                this.historyViewGeneration++;
                 this.historyRoot = root, root.find("#allSelectBox").prepend('<span id="historySelectionSummary" class="jhs-history-selection-summary" role="status" aria-live="polite"></span>'),
+                root.find("#filterBox").append('<select id="historySort" class="jhs-select-source" aria-label="记录排序"><option value="">按表头排序</option><option value="updateDate:desc">更新时间 新→旧</option><option value="updateDate:asc">更新时间 旧→新</option><option value="createDate:desc">创建时间 新→旧</option><option value="createDate:asc">创建时间 旧→新</option><option value="publishTime:desc">发行时间 新→旧</option><option value="publishTime:asc">发行时间 旧→新</option><option value="carNum:asc">番号 A→Z</option><option value="carNum:desc">番号 Z→A</option><option value="names:asc">演员 A→Z</option><option value="names:desc">演员 Z→A</option><option value="url:asc">来源 A→Z</option><option value="url:desc">来源 Z→A</option><option value="remark:asc">备注 A→Z</option><option value="remark:desc">备注 Z→A</option></select>');
+                root.on("change.jhsHistory", "#historySort", (/** @type {any} */ event) => { const [field,dir]=String(this.jquery(event.currentTarget).val()).split(":"); if (field) this.tableObj?.setSort(field,dir); });
                 this.resetHistorySelection(!1), this.domUi.enhanceSelect(root);
-                await this.loadTableData(), root.on("click.jhsHistory", "#clearSearchbtn", (async (/** @type {any} */ e) => {
+                await this.loadTableData();
+                if (this.disposed || root !== this.historyRoot || generation !== this.historyDialogGeneration) return;
+                root.on("click.jhsHistory", "#clearSearchbtn", (async (/** @type {any} */ e) => {
                     root.find("#searchCarNum").val(""), this.domUi.setSelectValue(root.find("#dataType"), "all"), await this.reloadTable(),
                     root.find("#allSelectBox").hide();
                 })).on("focusout.jhsHistory keydown.jhsHistory", "#searchCarNum", (async (/** @type {any} */ e) => {
@@ -162,26 +186,35 @@ export class HistoryDialogController {
                 })).on("click.jhsHistory", "[data-history-view]", (async (/** @type {any} */ event) => {
                     const view = this.jquery(event.currentTarget).data("history-view");
                     root.find("[data-history-view]").removeClass("active"), this.jquery(event.currentTarget).addClass("active"), await this.showHistoryView(view);
-                })).on("click", ".jhs-undo-activity", (async (/** @type {any} */ event) => {
+                })).on("click.jhsHistory", ".jhs-undo-activity", (async (/** @type {any} */ event) => {
+                    const viewGeneration = this.historyViewGeneration;
                     try {
                         const result = await this.historyRepository.undo(this.jquery(event.currentTarget).data("transaction"));
-                        this.notifications.info(`撤销完成：${result.reverted.length} 项成功，${result.conflicts.length} 项冲突`), await this.renderActivityHistory();
+                        this.notifications.info(`撤销完成：${result.reverted.length} 项成功，${result.conflicts.length} 项冲突`);
+                        if (this.isCurrentHistoryView(root, viewGeneration)) await this.renderActivityHistory();
                     } catch (error) {
                         this.logger.error("撤销失败:", error), this.notifications.error("撤销失败，请稍后重试");
                     }
-                })).on("click", ".jhs-copy-offline", (async (/** @type {any} */ event) => {
+                })).on("click.jhsHistory", ".jhs-copy-offline", (async (/** @type {any} */ event) => {
                     await this.clipboard.copyText("离线资源", this.jquery(event.currentTarget).data("resource"));
-                })).on("click", ".jhs-retry-offline", (async (/** @type {any} */ event) => {
+                })).on("click.jhsHistory", ".jhs-retry-offline", (async (/** @type {any} */ event) => {
+                    const viewGeneration = this.historyViewGeneration;
                     const id = this.jquery(event.currentTarget).data("id"), item = (await this.historyRepository.offline()).find((/** @type {HistoryRecord} */ entry) => entry.id === id), offline = this.resolveLegacy("UnifiedOfflinePlugin");
-                    item && offline && await offline.submitResource(event, item.resource, this.jquery(event.currentTarget), { carNum: item.carNum }, item.id, { forceAvailabilityRefresh: !0, preferredProviderId: item.providerId }), await this.renderOfflineHistory();
-                })).on("click", ".jhs-open-offline", (async (/** @type {any} */ event) => {
+                    if (!this.isCurrentHistoryView(root, viewGeneration)) return;
+                    item && offline && await offline.submitResource(event, item.resource, this.jquery(event.currentTarget), { carNum: item.carNum }, item.id, { forceAvailabilityRefresh: !0, preferredProviderId: item.providerId });
+                    if (this.isCurrentHistoryView(root, viewGeneration)) await this.renderOfflineHistory();
+                })).on("click.jhsHistory", ".jhs-open-offline", (async (/** @type {any} */ event) => {
                     const id = this.jquery(event.currentTarget).data("id"), item = (await this.historyRepository.offline()).find((/** @type {HistoryRecord} */ entry) => entry.id === id), provider = this.resolveLegacy("UnifiedOfflinePlugin")?.registry?.providers?.get(item?.providerId), url = provider?.openUrl?.();
                     url && this.window.open(url, "_blank", "noopener,noreferrer");
-                })).on("click", ".jhs-delete-offline", (async (/** @type {any} */ event) => {
-                    await this.historyRepository.removeOffline(this.jquery(event.currentTarget).data("id")), await this.renderOfflineHistory();
+                })).on("click.jhsHistory", ".jhs-delete-offline", (async (/** @type {any} */ event) => {
+                    const viewGeneration = this.historyViewGeneration;
+                    await this.historyRepository.removeOffline(this.jquery(event.currentTarget).data("id"));
+                    if (this.isCurrentHistoryView(root, viewGeneration)) await this.renderOfflineHistory();
                 })), this.bindHistoryActions(root);
             },
             end: () => {
+                if (generation !== this.historyDialogGeneration) return;
+                this.historyDialogGeneration++, this.historyViewGeneration++;
                 this.dialogId = null;
                 this.resetHistorySelection(), this.historyRoot?.off(".jhsHistory"), this.historyRoot = null, this.tableObj && (this.tableObj.destroy(), this.tableObj = null);
             }
@@ -191,6 +224,7 @@ export class HistoryDialogController {
     dispose() {
         if (this.disposed) return;
         this.disposed = true;
+        this.historyDialogGeneration++, this.historyViewGeneration++;
         if (this.dialogId != null) this.dialog.close(this.dialogId);
         this.dialogId = null;
         this.historyRoot?.off(".jhsHistory");
@@ -201,20 +235,36 @@ export class HistoryDialogController {
     }
     /** @param {string} view */
     async showHistoryView(view) {
+        if (this.disposed || !this.historyRoot) return;
+        this.historyViewGeneration++;
         const stateView = "state" === view;
+        this.historyRoot?.find("#table-container").toggleClass("jhs-record-list jhs-scrollbar", !stateView);
         this.resetHistorySelection(), this.historyRoot?.find("#filterBox,#allSelectBox").toggle(stateView), this.tableObj?.destroy(), this.tableObj = null;
         return stateView ? this.loadTableData() : "activity" === view ? this.renderActivityHistory() : this.renderOfflineHistory();
     }
+    /** @param {JQueryHandle | null} root @param {number} generation */
+    isCurrentHistoryView(root, generation) {
+        return !this.disposed && root != null && root === this.historyRoot && generation === this.historyViewGeneration;
+    }
     async renderActivityHistory() {
-        const log = await this.historyRepository.activity(), host = this.historyRoot.find("#table-container").empty();
+        const root = this.historyRoot, generation = ++this.historyViewGeneration;
+        if (!root || this.disposed) return;
+        const log = await this.historyRepository.activity();
+        if (!this.isCurrentHistoryView(root, generation)) return;
+        const host = root.find("#table-container").empty().addClass("jhs-record-list jhs-scrollbar");
         if (!log.entries.length) return void host.html('<div class="jhs-state jhs-state--empty">暂无操作记录</div>');
         log.entries.slice().reverse().forEach((/** @type {HistoryRecord} */ entry) => {
             const reverted = entry.changes.filter((/** @type {HistoryRecord} */ change) => "reverted" === change.undoState).length, conflicts = entry.changes.filter((/** @type {HistoryRecord} */ change) => "conflict" === change.undoState).length;
-        host.append(this.jquery("<article class=\"jhs-card\"></article>").append(this.jquery("<strong></strong>").text(`${entry.type} · ${entry.changes.length} 项`), this.jquery("<p></p>").text(`${new Date(entry.createdAt).toLocaleString()} · 已撤销 ${reverted} · 冲突 ${conflicts}`), this.jquery("<p></p>").text(entry.changes.map((/** @type {HistoryRecord} */ change) => change.carNum).join("、")), this.jquery("<button type=\"button\" class=\"jhs-btn jhs-btn--secondary jhs-undo-activity\">撤销可恢复项</button>").attr("data-transaction", entry.id).prop("disabled", "committed" !== entry.commitState || reverted === entry.changes.length)));
+        const label = ACTIVITY_LABELS[/** @type {keyof typeof ACTIVITY_LABELS} */ (entry.type)] || "更新影片状态";
+        host.append(this.jquery("<article class=\"jhs-card jhs-record-card\"></article>").append(this.jquery("<strong></strong>").text(`${label} · ${entry.changes.length} 项`), this.jquery("<p></p>").text(`${new Date(entry.createdAt).toLocaleString()} · 已撤销 ${reverted} · 冲突 ${conflicts}`), this.jquery("<p></p>").text(entry.changes.map((/** @type {HistoryRecord} */ change) => change.carNum).join("、")), this.jquery("<button type=\"button\" class=\"jhs-btn jhs-btn--secondary jhs-undo-activity\">撤销可恢复项</button>").attr("data-transaction", entry.id).prop("disabled", "committed" !== entry.commitState || reverted === entry.changes.length)));
         });
     }
     async renderOfflineHistory() {
-        const history = await this.historyRepository.offline(), host = this.historyRoot.find("#table-container").empty();
+        const root = this.historyRoot, generation = ++this.historyViewGeneration;
+        if (!root || this.disposed) return;
+        const history = await this.historyRepository.offline();
+        if (!this.isCurrentHistoryView(root, generation)) return;
+        const host = root.find("#table-container").empty().addClass("jhs-record-list jhs-scrollbar");
         if (!history.length) return void host.html('<div class="jhs-state jhs-state--empty">暂无离线任务</div>');
         history.slice().reverse().forEach((/** @type {HistoryRecord} */ item) => {
             const offline = this.resolveLegacy("UnifiedOfflinePlugin"), provider = offline?.registry?.providers?.get?.(item.providerId);
@@ -222,7 +272,10 @@ export class HistoryDialogController {
             if (offline && provider) actions.append(this.jquery("<button type=\"button\" class=\"jhs-btn jhs-retry-offline\">重试</button>").attr("data-id", item.id));
             if (provider && typeof provider.openUrl === "function") actions.append(this.jquery("<button type=\"button\" class=\"jhs-btn jhs-open-offline\">打开服务</button>").attr("data-id", item.id));
             actions.append(this.jquery("<button type=\"button\" class=\"jhs-btn jhs-btn--danger jhs-delete-offline\">移除记录</button>").attr("data-id", item.id));
-            host.append(this.jquery("<article class=\"jhs-card\"></article>").append(this.jquery("<strong></strong>").text(`${item.providerName || item.providerId} · ${item.status}`), this.jquery("<p></p>").text(`${item.carNum || "未关联番号"} · ${new Date(item.createdAt).toLocaleString()}${item.retryOf ? ` · 重试自 ${item.retryOf}` : ""}`), this.jquery("<p></p>").text(item.errorMessage || item.resource), actions));
+            const statuses = { submitted: "已提交", success: "已完成", failed: "提交失败", pending: "待提交" };
+            const status = statuses[/** @type {keyof typeof statuses} */ (item.status)] || "状态待确认";
+            const providerName = item.providerId === "115" ? PRODUCT_NAMES.one115 : item.providerId === "123" ? PRODUCT_NAMES.pan123 : item.providerName || "离线服务";
+            host.append(this.jquery("<article class=\"jhs-card jhs-record-card\"></article>").append(this.jquery("<strong></strong>").text(`${providerName} · ${status}`), this.jquery("<p></p>").text(`${item.carNum || "未关联番号"} · ${new Date(item.createdAt).toLocaleString()}${item.retryOf ? " · 重试任务" : ""}`), this.jquery("<p></p>").text(item.errorMessage ? "离线提交失败，请检查授权后重试" : item.resource), actions));
         });
     }
     async reloadTable(resetSelection = !0) {
@@ -297,45 +350,34 @@ export class HistoryDialogController {
     /** 解析批量操作实际要处理的当前页或完整筛选结果。 */
     async getHistoryBatchSelection() {
         if (!this.isHistoryAllFiltered()) return this.historySelectionModel.values(this.tableObj?.getData?.() || []);
+        const root = this.historyRoot, generation = this.historyViewGeneration;
         const rows = await this.getFilteredHistoryData(this.historySorters), available = new Set(rows.map((/** @type {HistoryRecord} */ item) => this.normalizeHistoryCarNum(item.carNum)));
+        if (!this.isCurrentHistoryView(root, generation)) return [];
         for (const carNum of this.historySelectionModel.excluded) available.has(carNum) || this.historySelectionModel.excluded.delete(carNum);
         return this.historyFilteredCount = rows.length, this.historySelectionModel.values(rows);
     }
     /** @param {JQueryHandle} root */
-    bindHistoryActions(root) {
-        root.on("click.jhsHistory", (function(/** @type {any} */ e) {
-            if (e.target.closest(".sub-btns-toggle")) {
-                const button = e.target.closest(".sub-btns-toggle"), t = button.closest(".sub-btns").querySelector(".sub-btns-menu");
-                root.find(".sub-btns-menu.show").each(((/** @type {number} */ index, /** @type {HTMLElement} */ e) => {
-                    e !== t && (e.classList.remove("show"), e.previousElementSibling?.setAttribute("aria-expanded", "false"));
-                })), t.classList.toggle("show"), button.setAttribute("aria-expanded", String(t.classList.contains("show")));
-            } else root.find(".sub-btns-menu.show").each(((/** @type {number} */ index, /** @type {HTMLElement} */ e) => {
-                e.classList.remove("show"), e.previousElementSibling?.setAttribute("aria-expanded", "false");
-            }));
-        })), root.on("keydown.jhsHistory", ".sub-btns", ((/** @type {any} */ e) => {
-            const menu = this.jquery(e.currentTarget).find(".sub-btns-menu"), items = menu.find('[role="menuitem"]'), current = items.index(this.document.activeElement);
-            if ("Escape" === e.key) return e.preventDefault(), menu.removeClass("show"), this.jquery(e.currentTarget).find(".sub-btns-toggle").attr("aria-expanded", "false").trigger("focus");
-            if (![ "ArrowDown", "ArrowUp", "Home", "End" ].includes(e.key) || !menu.hasClass("show")) return;
-            e.preventDefault();
-            const next = "Home" === e.key ? 0 : "End" === e.key ? items.length - 1 : "ArrowDown" === e.key ? (current + 1 + items.length) % items.length : (current - 1 + items.length) % items.length;
-            items.eq(next).trigger("focus");
-        })), root.on("click.jhsHistory", ".history-deleteBtn, .history-filterBtn, .history-favoriteBtn, .history-hasDownBtn, .history-hasWatchBtn, .history-detailBtn", ((/** @type {any} */ e) => {
+    /** @param {any} e @param {HistoryRecord | null} [record] */
+    handleRowAction(e, record = null) {
             e.preventDefault(), e.stopPropagation();
-            const t = this.jquery(e.currentTarget), n = t.closest(".action-btns"), a = /** @type {string} */ (n.attr("data-car-num")), i = /** @type {string} */ (n.attr("data-href")), s = async (/** @type {string} */ actionType) => {
+            const t = this.jquery(e.currentTarget), n = t.closest(".action-btns"), a = String(record?.carNum || n.attr("data-car-num") || ""), i = String(record?.url || n.attr("data-href") || ""), s = async (/** @type {string} */ actionType) => {
                 try {
                     const flag = legacyActionToFlag(actionType);
                     if (!flag) throw new TypeError(`无效历史状态操作: ${actionType}`);
                     await this.historyRepository.toggle(a, flag, { type: "history-state", record: { carNum: a, url: i } }), await this.reloadTable();
-                } catch (s) { this.logger.error("历史记录操作失败:", s), this.notifications.error("操作失败"); }
+                } catch (s) { this.logger.error("历史记录操作失败:", s), this.notifications.error("状态更新失败，请重试"); }
             };
             if (t.hasClass("history-filterBtn")) {
                 const record = this.tableObj?.getRow(a)?.getData(), isBlocked = normalizeStateFlags(record?.stateFlags).blocked;
-                isBlocked ? void s(d) : this.domUi.confirm(e, `是否屏蔽${escapeHtml(a)}?`, (() => s(d)));
+                isBlocked ? void s(d) : this.domUi.confirm(e, `屏蔽「${escapeHtml(a)}」？`, (() => s(d)), { confirmText: "屏蔽" });
             } else t.hasClass("history-favoriteBtn") ? void s(h) : t.hasClass("history-hasDownBtn") ? void s(g) : t.hasClass("history-hasWatchBtn") ? void s(p) : t.hasClass("history-deleteBtn") ? this.handleDelete(e, a) : t.hasClass("history-detailBtn") && void this.handleClickDetail(e, {
                 carNum: a,
                 url: i
             }).catch((error => this.logger.error("历史详情打开失败", error)));
-        })), root.on("click.jhsHistory", ".multiple-history-deleteBtn, .multiple-history-filterBtn, .multiple-history-favoriteBtn, .multiple-history-hasDownBtn, .multiple-history-hasWatchBtn", (async (/** @type {any} */ e) => {
+    }
+    /** @param {JQueryHandle} root */
+    bindHistoryActions(root) {
+        root.on("click.jhsHistory", ".history-deleteBtn, .history-filterBtn, .history-favoriteBtn, .history-hasDownBtn, .history-hasWatchBtn, .history-detailBtn", this.handleRowAction.bind(this)), root.on("click.jhsHistory", ".multiple-history-deleteBtn, .multiple-history-filterBtn, .multiple-history-favoriteBtn, .multiple-history-hasDownBtn, .multiple-history-hasWatchBtn", (async (/** @type {any} */ e) => {
             e.preventDefault(), e.stopPropagation();
             const t = this.jquery(e.currentTarget);
             /** @type {HistoryRecord[]} */
@@ -346,46 +388,49 @@ export class HistoryDialogController {
             i = p) : t.hasClass("multiple-history-deleteBtn") && (a = "移除", i = "delete");
             if (!n.length) return void this.notifications.info("请先选择要处理的记录");
             const selectionText = this.isHistoryAllFiltered() ? this.historySelectionModel.excluded.size ? `当前筛选结果中已选择 ${n.length} 条，排除 ${this.historySelectionModel.excluded.size} 条` : `当前筛选结果中已选择全部 ${n.length} 条` : `当前页已选择 ${n.length} 条`;
-            this.domUi.confirm(e, `${selectionText}，是否标记为${a}？`, (async () => {
+            this.domUi.confirm(e, `${selectionText}<br>${"delete" === i ? "移除这些记录？" : `标记为${a}？`}`, (async () => {
                 let e = this.domUi.loading();
                 try {
                     if ("delete" === i) {
                         const e = n.map((/** @type {HistoryRecord} */ e) => e.carNum), t = await this.historyRepository.remove(e);
-                        if (!t.changed.length) return void this.notifications.error("提供的番号中没有一个存在于列表中。");
-                        this.notifications.ok(`已成功删除 ${t.changed.length} 个番号`);
+                        if (!t.changed.length) return void this.notifications.error("所选记录已不存在");
+                        this.notifications.ok(`已移除 ${t.changed.length} 条记录`);
                     } else {
                         const flag = legacyActionToFlag(i);
                         if (!flag) throw new TypeError(`无效历史批量操作: ${i}`);
-                        await this.historyRepository.patch(n.map((item => item.carNum)), { [flag]: !0 }, { type: "history-batch-state", records: n }), this.notifications.ok("操作成功");
+                        await this.historyRepository.patch(n.map((item => item.carNum)), { [flag]: !0 }, { type: "history-batch-state", records: n }), this.notifications.ok(`已标记${a}`);
                     }
                     this.resetHistorySelection(), await this.reloadTable(!1);
                 } catch (t) {
-                    this.logger.error(t), this.notifications.error("操作失败，请稍后重试");
+                    this.logger.error(t), this.notifications.error("记录更新失败，请重试");
                 } finally {
                     e.close();
                 }
-            }));
+            }), { confirmText: "delete" === i ? "移除" : `标记${a}` });
         }));
     }
     /** 返回应用当前搜索、状态筛选和排序后的完整 History 数据。 */
     /** @param {HistoryRecord[]} [sorters] @returns {Promise<HistoryRecord[]>} */
     async getFilteredHistoryData(sorters = this.historySorters) {
+        const root = this.historyRoot, generation = this.historyViewGeneration;
+        if (!root || this.disposed) return [];
         /** @type {HistoryRecord[]} */
         let a = await this.historyRepository.list();
+        if (!this.isCurrentHistoryView(root, generation)) return [];
         this.allCount = a.length, this.filterCount = 0, this.favoriteCount = 0, this.hasDownCount = 0,
         this.hasWatchCount = 0, this.waitCheckCount = 0, a.forEach((/** @type {HistoryRecord} */ e) => {
             const flags = normalizeStateFlags(e.stateFlags);
             flags.blocked && this.filterCount++, flags.favorite && this.favoriteCount++, flags.downloaded && this.hasDownCount++, flags.watched && this.hasWatchCount++, hasAnyState(flags) || this.waitCheckCount++;
-        }), this.historyRoot.find('#dataType option[value="all"]').text(`所有 (${this.allCount})`), this.historyRoot.find('#dataType option[value="waitCheck"]').text(`待鉴定 (${this.waitCheckCount})`),
-        this.historyRoot.find('#dataType option[value="filter"]').text(`${u} (${this.filterCount})`),
-        this.historyRoot.find('#dataType option[value="favorite"]').text(`${b} (${this.favoriteCount})`), this.historyRoot.find('#dataType option[value="hasDown"]').text(`${y} (${this.hasDownCount})`),
-        this.historyRoot.find('#dataType option[value="hasWatch"]').text(`${k} (${this.hasWatchCount})`);
-        const i = String(this.historyRoot.find("#dataType").val() || "all");
+        }), root.find('#dataType option[value="all"]').text(`所有（${this.allCount}）`), root.find('#dataType option[value="waitCheck"]').text(`待鉴定（${this.waitCheckCount}）`),
+        root.find('#dataType option[value="filter"]').text(`${u}（${this.filterCount}）`),
+        root.find('#dataType option[value="favorite"]').text(`${b}（${this.favoriteCount}）`), root.find('#dataType option[value="hasDown"]').text(`${y}（${this.hasDownCount}）`),
+        root.find('#dataType option[value="hasWatch"]').text(`${k}（${this.hasWatchCount}）`);
+        const i = String(root.find("#dataType").val() || "all");
         /** @type {Record<string, keyof import("../../core/state-model.js").StateFlags>} */
         const flagByFilter = { filter: "blocked", favorite: "favorite", hasDown: "downloaded", hasWatch: "watched" };
         const selectedFlag = flagByFilter[i];
         let s = "all" === i ? a : "waitCheck" === i ? a.filter((e => !hasAnyState(e.stateFlags))) : selectedFlag ? a.filter((e => normalizeStateFlags(e.stateFlags)[selectedFlag])) : a;
-        const o = String(this.historyRoot.find("#searchCarNum").val() || "").trim();
+        const o = String(root.find("#searchCarNum").val() || "").trim();
         if (o) {
             let e = o.toLowerCase().replace("-c", "").replace("-uc", "").replace("-4k", "");
             s = s.filter((/** @type {HistoryRecord} */ t) => {
@@ -405,18 +450,34 @@ export class HistoryDialogController {
     }
     /** @param {number} e @param {number} t @param {HistoryRecord[]} n */
     async getDataList(e, t, n) {
+        const root = this.historyRoot, generation = this.historyViewGeneration;
         this.historySorters = Array.isArray(n) ? n.map((/** @type {HistoryRecord} */ sorter) => ({
             ...sorter
         })) : [];
         const rows = await this.getFilteredHistoryData(this.historySorters), r = rows.length, l = Math.ceil(r / t), c = (e - 1) * t, m = c + t;
-        return this.historyFilteredCount = r, {
+        if (this.isCurrentHistoryView(root, generation)) this.historyFilteredCount = r;
+        return {
             maxPage: l,
             dataList: rows.slice(c, m),
             totalCount: r
         };
     }
+    /** @param {TableHandle} row */
+    renderHistoryDetails(row) {
+        const element = row.getElement(), target = element.querySelector(".tabulator-responsive-collapse");
+        if (!target) return;
+        const record = row.getData(), details = this.document.createElement("dl"); details.className="jhs-history-details";
+        const fields = [["来源", this.getSourceLabel(record.url)], ["创建时间",record.createDate], ["发行时间",record.publishTime], ["备注",record.remark]];
+        if (!row.getTable().getColumn("names")?.isVisible()) fields.unshift(["演员",record.names]);
+        if (!row.getTable().getColumn("updateDate")?.isVisible()) fields.push(["更新时间",record.updateDate]);
+        for (const [label,value] of fields) { if (!value) continue; const pair=this.document.createElement("div"), dt=this.document.createElement("dt"), dd=this.document.createElement("dd"); dt.textContent=label; dd.textContent=String(value); pair.append(dt,dd); details.append(pair); }
+        target.replaceChildren(details);
+    }
     async loadTableData() {
-        this.tableObj = createJhsTable(/** @type {any} */ (this.window).Tabulator, this.historyRoot.find("#table-container").get(0), {
+        const root = this.historyRoot, generation = this.historyViewGeneration;
+        if (!root || this.disposed) return;
+        root.find("#table-container").removeClass("jhs-record-list");
+        const table = createJhsTable(/** @type {any} */ (this.window).Tabulator, root.find("#table-container").get(0), {
             layout: "fitColumns",
             placeholder: "暂无数据",
             virtualDom: !0,
@@ -426,6 +487,7 @@ export class HistoryDialogController {
             ajaxURL: "queryRealm",
             dataLoader: !1,
             ajaxRequestFunc: async (/** @type {any} */ e, /** @type {any} */ t, /** @type {HistoryRecord} */ n) => {
+                if (!this.isCurrentHistoryView(root, generation)) return { maxPage: 0, dataList: [], totalCount: 0 };
                 const a = n.page, i = n.size, s = n.sort;
                 return await this.getDataList(a, i, s);
             },
@@ -439,6 +501,9 @@ export class HistoryDialogController {
             paginationCounter: (/** @type {any} */ e, /** @type {any} */ t, /** @type {any} */ n, /** @type {number} */ a, /** @type {any} */ i) => `共 ${a} 条记录`,
             responsiveLayout: "collapse",
             responsiveLayoutCollapse: !0,
+            responsiveLayoutCollapseStartOpen: false,
+            responsiveLayoutCollapseFormatter: () => false,
+            rowFormatter: (/** @type {any} */ row) => this.renderHistoryDetails(row),
             columnDefaults: {
                 headerHozAlign: "center",
                 hozAlign: "center"
@@ -446,26 +511,32 @@ export class HistoryDialogController {
             selectableRowsPersistence: !1,
             index: "carNum",
             columns: [ {
+                title:"", width:44, minWidth:44, cssClass:"jhs-history-choice-cell", responsive:0, headerSort:false,
+                formatter: (/** @type {any} */ cell) => {
+                    const button = this.document.createElement("button"); button.type="button"; button.className="jhs-btn jhs-btn--ghost jhs-details-toggle"; button.innerHTML=getIcon("chevron-down"); button.setAttribute("aria-label","展开影片资料"); button.setAttribute("aria-expanded","false");
+                    button.addEventListener("click", () => { const row=cell.getRow(), details=row.getElement().querySelector(".tabulator-responsive-collapse"); if (!details) return; const open=details.style.display === "none"; details.style.display=open ? "" : "none"; button.setAttribute("aria-expanded",String(open)); row.normalizeHeight(); }); return button;
+                }
+            }, {
                 formatter: "rowSelection",
-                titleFormatter: () => this.createHistorySelectAllCheckbox(),
+                titleFormatter: () => { const label=this.document.createElement("label"); label.className="jhs-choice jhs-history-choice-label"; label.append(this.createHistorySelectAllCheckbox()); return label; },
                 hozAlign: "center",
                 headerSort: !1,
                 responsive: 0,
-                width: 40,
+                width: 44, minWidth:44, cssClass:"jhs-history-choice-cell",
                 cellClick: (/** @type {any} */ e, /** @type {TableHandle} */ t) => {
                     t.getRow().toggleSelect();
                 }
             }, {
                 title: "番号",
                 field: "carNum",
-                width: 120,
+                minWidth:90, widthGrow:1,
                 sorter: "string",
                 responsive: 0,
                 formatter: (/** @type {TableHandle} */ e) => buildCarNumCell(e.getData().carNum, this.document)
             }, {
                 title: "演员",
                 field: "names",
-                minWidth: 200,
+                minWidth: 100,
                 sorter: "string",
                 responsive: 5,
                 headerSort: !0,
@@ -473,6 +544,7 @@ export class HistoryDialogController {
             }, {
                 title: "创建时间",
                 field: "createDate",
+                visible: false,
                 width: 170,
                 sorter: "string",
                 responsive: 4
@@ -485,12 +557,14 @@ export class HistoryDialogController {
             }, {
                 title: "发行时间",
                 field: "publishTime",
+                visible: false,
                 width: 170,
                 sorter: "string",
                 responsive: 4
             }, {
                 title: "来源",
                 field: "url",
+                visible: false,
                 width: 80,
                 sorter: "string",
                 responsive: 5,
@@ -502,7 +576,7 @@ export class HistoryDialogController {
             }, {
                 title: "状态",
                 field: "stateFlags",
-                width: 220,
+                minWidth: 100,
                 sorter: !1,
                 responsive: 1,
                 headerSort: !1,
@@ -516,21 +590,25 @@ export class HistoryDialogController {
             }, {
                 title: "备注",
                 field: "remark",
+                visible: false,
                 width: 100,
                 sorter: "string",
                 responsive: 6
             }, {
                 title: "操作",
                 sorter: "string",
-                minWidth: 150,
+                minWidth: 116,
                 cssClass: "action-cell-dropdown",
                 responsive: 0,
                 headerSort: !1,
                 formatter: (/** @type {TableHandle} */ e, /** @type {any} */ t, /** @type {(callback: () => void) => void} */ n) => {
                     const a = e.getData(), element = buildActionButtons(a, this.document);
                     n((() => {
+                        const anchor = /** @type {HTMLElement} */ (element.querySelector(".sub-btns-toggle")), menu = /** @type {HTMLElement} */ (element.querySelector(".sub-btns-menu")), popover = new OwnedPopover(anchor,menu);
+                        anchor.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); popover.opened ? popover.close(true) : popover.open(); });
+                        menu.querySelectorAll("button:not(.history-editBtn)").forEach(button => button.addEventListener("click", event => { this.handleRowAction({currentTarget:button, preventDefault:()=>event.preventDefault(), stopPropagation:()=>event.stopPropagation()},a); popover.close(); }));
                         element.querySelector(".history-editBtn")?.addEventListener("click", ((/** @type {Event} */ ev) => {
-                            this.editRecord(a);
+                            popover.close(); this.editRecord(a);
                         }));
                     }));
                     return element;
@@ -541,33 +619,46 @@ export class HistoryDialogController {
                 dir: "desc"
             } ]
         });
+        this.tableObj = table;
+        const isCurrentTable = () => this.tableObj === table && this.isCurrentHistoryView(root, generation);
+        table.on("renderComplete", () => {
+            if (!isCurrentTable()) return;
+            table.getRows("visible").forEach((/** @type {any} */ row) => this.renderHistoryDetails(row));
+            root.find("select.tabulator-page-size").addClass("jhs-select-source"); this.domUi.enhanceSelect(root);
+        });
         // 数据刷新时 Tabulator 会先取消当前页选择；该阶段不应写入“全选筛选结果”的排除集。
-        this.tableObj.on("dataProcessing", (() => {
+        table.on("dataProcessing", (() => {
+            if (!isCurrentTable()) return;
             this.historySelectionSyncing = !0;
         }));
-        this.tableObj.on("dataProcessed", (() => {
+        table.on("dataProcessed", (() => {
+            if (!isCurrentTable()) return;
             this.historySelectionSyncing = !1;
             this.isHistoryAllFiltered() ? this.syncHistoryPageSelection() : this.updateHistorySelectionUi();
-        })), this.tableObj.on("rowSelected", ((/** @type {TableHandle} */ row) => {
+        })), table.on("rowSelected", ((/** @type {TableHandle} */ row) => {
+            if (!isCurrentTable()) return;
             this.updateHistoryRowSelection(row, !0);
-        })), this.tableObj.on("rowDeselected", ((/** @type {TableHandle} */ row) => {
+        })), table.on("rowDeselected", ((/** @type {TableHandle} */ row) => {
+            if (!isCurrentTable()) return;
             this.updateHistoryRowSelection(row, !1);
-        })), this.tableObj.on("rowSelectionChanged", (() => {
+        })), table.on("rowSelectionChanged", (() => {
+            if (!isCurrentTable()) return;
             this.updateHistorySelectionUi();
-        })), this.tableObj.on("rowDblClick", (function(/** @type {any} */ e, /** @type {TableHandle} */ t) {
+        })), table.on("rowDblClick", ((/** @type {any} */ e, /** @type {TableHandle} */ t) => {
+            if (!isCurrentTable()) return;
             t.toggleSelect();
         }));
     }
     /** @param {any} e @param {string} t */
     handleDelete(e, t) {
-        this.domUi.confirm(e, `是否移除${escapeHtml(t)}?`, (async () => {
+        this.domUi.confirm(e, `移除「${escapeHtml(t)}」的记录？`, (async () => {
             try {
                 await this.historyRepository.remove(t), this.resolveLegacy("ListPagePlugin")?.showCarNumBox?.(t),
                 await this.reloadTable();
             } catch (error) {
-                this.logger.error("移除历史记录失败:", error), this.notifications.error("移除失败，请稍后重试");
+                this.logger.error("移除历史记录失败:", error), this.notifications.error("记录移除失败，请重试");
             }
-        }));
+        }), { confirmText: "移除" });
     }
     /** @param {any} e @param {HistoryRecord} t */
     async handleClickDetail(e, t) {
@@ -575,7 +666,7 @@ export class HistoryDialogController {
             const plugin = this.fc2WorkspaceAvailable && this.getFc2Workspace
                 ? await this.getFc2Workspace()
                 : this.resolveLegacy("Fc2Plugin");
-            if (!plugin) return t.url ? void this.domUi.openPage(t.url, t.carNum, !1, e) : void this.notifications.info("FC2 详情功能已禁用");
+            if (!plugin) return t.url ? void this.domUi.openPage(t.url, t.carNum, !1, e) : void this.notifications.info(`${PRODUCT_NAMES.fc2} 详情功能已关闭`);
             const source = await plugin.resolveFc2Source(t), movieId = await plugin.resolveMovieIdForRecord(t.carNum, t.url);
             if (this.site === "javdb") plugin.openFc2Dialog(movieId, t.carNum, t.url, { source });
             else if (this.site === "javbus") await plugin.openFc2Page(movieId, t.carNum, t.url, { newTab: !0 }, { source });
@@ -598,7 +689,7 @@ export class HistoryDialogController {
         const c = buildEditRecordForm(flags);
         this.dialog.open({
             type: 1,
-            title: `编辑记录: ${carNum}`,
+            title: `编辑记录：${carNum}`,
             area: this.domUi.getDialogArea("sm"),
             content: c,
             btn: [ "保存", "取消" ],
@@ -622,7 +713,7 @@ export class HistoryDialogController {
                 const save = async () => {
                     await this.historyRepository.patch(e.carNum, nextFlags, { type: "history-edit", replaceMetadata: !0, record: { ...e, names: nextNames, url: nextUrl, remark: nextRemark } }), this.tableObj.setData(), this.dialog.close(index);
                 };
-                if (!flags.blocked && nextFlags.blocked) return this.domUi.confirm(null, `是否屏蔽${escapeHtml(e.carNum)}?`, (() => void save())), !1;
+                if (!flags.blocked && nextFlags.blocked) return this.domUi.confirm(null, `屏蔽「${escapeHtml(e.carNum)}」？`, (() => void save()), { confirmText: "屏蔽" }), !1;
                 await save();
             }
         });

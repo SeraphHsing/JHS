@@ -38,6 +38,12 @@ export class JavBusHostAdapter {
             return currentUrl;
         }
     }
+    /** @param {MutationRecord} record */
+    isResourceMutation(record) {
+        const selector = '#magnet-table';
+        if (record.target.nodeType === 1 && /** @type {Element} */ (record.target).closest(selector)) return true;
+        return [...record.addedNodes,...record.removedNodes].some(node => node.nodeType === 1 && (/** @type {Element} */ (node).matches(selector) || /** @type {Element} */ (node).querySelector(selector)));
+    }
     detectRoute() { return this.locateNativeMagnets() ? "detail" : this.locateListRoot() ? "list" : "other"; }
     readMovieRef() {
         const pathCarNum = this.location.pathname.split("/").filter(Boolean).pop()?.replace(/_\d{4}-\d{2}-\d{2}$/u, "") ?? null;
@@ -87,6 +93,17 @@ export class JavBusHostAdapter {
         return true;
     }
     locateNativeGallery() { return this.document.querySelector("#sample-waterfall, .sample-box"); }
+    getDetailImageSequence() {
+        const root = this.locateDetailRoot();
+        return [...(root?.querySelectorAll("#sample-waterfall a.sample-box") ?? [])].flatMap(trigger => {
+            if (trigger.closest(".screen-container")) return [];
+            const image = trigger.querySelector("img");
+            if (!image) return [];
+            let url;
+            try { url = new URL(trigger.getAttribute("href") || image.currentSrc || image.src, this.document.baseURI); } catch { return []; }
+            return ["https:","http:"].includes(url.protocol) ? [{ trigger, image, url:url.href }] : [];
+        });
+    }
     locateNativeMagnets() { return this.document.querySelector("#magnet-table"); }
     getDetailResourceBoundary() {
         const resourceRoot = this.locateNativeMagnets(), hostRoot = this.locateDetailRoot();

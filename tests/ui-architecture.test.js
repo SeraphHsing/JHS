@@ -23,7 +23,7 @@ describe("detail workspace adapters", () => {
     const javdbHost = readTestFile(join(process.cwd(), "src/platform/hosts/javdb-host-adapter.js"), "utf8");
     const javbusHost = readTestFile(join(process.cwd(), "src/platform/hosts/javbus-host-adapter.js"), "utf8");
     it("keeps the protected JavDB controller and resource root as an adapter boundary", () => {
-        expect(javdbHost).toContain('[data-controller="magnet-sort"]');
+        expect(javdbHost).toContain('[data-controller~="magnet-sort"]');
         expect(javdbHost).toContain('querySelector("#magnets-content")');
         expect(javbusHost).toContain('querySelector("#magnet-table")');
         expect(source).not.toContain("#magnet-table");
@@ -33,7 +33,7 @@ describe("detail workspace adapters", () => {
     });
     it("adopts owned panels once and observes only resource lifecycle changes", () => {
         expect(source).toContain("adoptExistingOwnedPanels(root)");
-        expect(source).toContain("this.lifecycleScope.observe(adapter.observeRoot[0]");
+        expect(source).toContain("this.lifecycleScope.observe(observeRoot");
         expect(source).toContain("releaseObserver(this.resourceObserver)");
         expect(source).toContain('this.eventBus.emit("magnet-items-updated"');
         expect(source).toContain('this.styles.register("jhs-detail-workspace-feature"');
@@ -138,7 +138,7 @@ const listButtons = readTestFile(join(process.cwd(), "src/features/list/list-act
     });
 
     it("renders product labels while retaining internal plugin names as a tooltip", () => {
-        expect(settings).toContain('DetailPagePlugin:["JavDB 详情页","detail"]');
+        expect(settings).toContain('DetailPagePlugin:[`${PRODUCT_NAMES.javdb} 详情页`,"detail"]');
         expect(pluginPanels).toContain("jhs-plugin-copy");
         expect(pluginPanels).toContain("内部插件名：");
         expect(pluginPanels).not.toContain("<small title=\"内部插件名\"");
@@ -177,7 +177,7 @@ const listButtons = readTestFile(join(process.cwd(), "src/features/list/list-act
         expect(commandbar).toContain('this.getCapability("SettingPlugin")?.openQuickSetting()');
         expect(commandbar).not.toContain('this.getCapability("SettingPlugin")?.openSettingDialog()');
         expect(commandbar).toMatch(/const action = this\.jquery\(e\.currentTarget\)\.data\("action"\);[\s\S]*"quickFilter" === action[\s\S]*closeMenu\(!0\);\s*void this\.handleAction\(action\)\.catch/);
-        expect(commandbar).toContain('id="jhs-fab" class="jhs-btn"');
+        expect(commandbar).toContain('id="jhs-fab" class="jhs-btn jhs-ui"');
         expect(commandbar).toContain('role="menuitem" class="jhs-btn jhs-fab-menu-item"');
         expect(commandbar).toContain('aria-expanded="false"');
         expect(commandbar).toMatch(/ArrowDown[\s\S]*ArrowUp[\s\S]*Home[\s\S]*End/);
@@ -217,7 +217,7 @@ const listButtons = readTestFile(join(process.cwd(), "src/features/list/list-act
         expect(relatedUi).toContain("encodeURIComponent(item.id)");
         expect(related).not.toContain("item columns is-desktop");
         expect(related).not.toContain("jhs-layout-");
-        expect(panelStyles).toMatch(/jhs-review-content[^}]*font-size:16px[^}]*line-height:1\.7/);
+        expect(panelStyles).toMatch(/jhs-review-content[^}]*font-size:var\(--jhs-font-size-lg\)[^}]*line-height:var\(--jhs-line-height-read\)/);
         expect(panelStyles).not.toMatch(/jhs-review-content[^}]*max-width/);
         expect(panelStyles).toContain("jhs-related-heading");
         expect(relatedUi).not.toMatch(/\.html\(/);
@@ -295,7 +295,7 @@ const listButtons = readTestFile(join(process.cwd(), "src/features/list/list-act
         expect(listSortController).toContain('this.settings.set("sortMethod", method)');
         for (const key of [ "ArrowDown", "ArrowUp", "Home", "End", "Escape" ]) expect(listButtons).toContain(key);
         expect(listButtons).not.toMatch(/<select[^>]+sort-toggle-btn/);
-        expect(coverButtons).toContain("width:152px");
+        expect(coverButtons).toContain("new OwnedPopover(trigger[0],menu[0])");
         expect(coverButtons).toContain("jhs-card-menu__dot");
         expect(coverButtons).not.toMatch(/elastic|jelly|right:\s*-/);
     });
@@ -332,7 +332,7 @@ const listButtons = readTestFile(join(process.cwd(), "src/features/list/list-act
         expect(related).not.toContain(".jhs-related-item {");
         expect(bootstrap).toContain('import { injectCoreCss } from "../core/css-injection.js"');
         expect(bootstrap).toContain("injectCoreCss(context.services.styles);");
-        expect(bootstrap).toMatch(/if \(route === "detail" \|\| route === "owned-detail"\)[\s\S]*await import\("\.\.\/ui\/detail\/panel-styles\.js"\)/);
+        expect(bootstrap).toMatch(/if \(route === "list" \|\| route === "detail" \|\| route === "owned-detail"\)[\s\S]*await import\("\.\.\/ui\/detail\/panel-styles\.js"\)/);
     });
 
     it("resets host cover animation without touching hover preview lifecycle", () => {

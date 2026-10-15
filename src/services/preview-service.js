@@ -1,4 +1,5 @@
 // @ts-check
+import { LifecycleScope } from "../core/lifecycle-scope.js";
 
 import { ProviderError } from "../core/cache-policy.js";
 import { L, normalizeCarNum } from "../core/constants.js";
@@ -72,9 +73,9 @@ export function canUseDmmPreview(settings) {
     return isPreviewEnabled(settings) && isDmmEnabled(settings);
 }
 
-/** 列表卡片 Preview 按钮：当前实现只有 DMM source，因此等价于 canUseDmmPreview。 @param {Record<string, any>} settings */
+/** 列表卡片入口：允许 DMM 播放与宿主详情回退。 @param {Record<string, any>} settings */
 export function canUseCardPreview(settings) {
-    return canUseDmmPreview(settings);
+    return canUsePreview(settings);
 }
 
 class DmmPreviewParser {
@@ -94,14 +95,11 @@ class DmmPreviewParser {
     }
     async _fetchRemote() {
         const result = await this.movie.preview("dmm", { carNum: this.carNum }, { scope: this.scope });
-        const button = $("#fanzaBtn");
+        if (this.scope?.disposed) return null;
         if (!result.sources) {
             clog.warn("所有关键词尝试均未找到匹配的Content ID, 解析Dmm视频失败");
-            button.attr("href", result.searchUrl).attr("title", "未查询到, 点击前往搜索页").css("backgroundColor", "var(--jhs-status-filter)");
             return null;
         }
-        button.attr("href", result.pageUrl).css("backgroundColor", "var(--jhs-status-down)");
-        if (result.matchType === "multiple") button.append('<span class="site-tag jhs-layout-294497f1">多结果</span>');
         const cacheKey = "jhs_other_site_dmm", cache = pruneDmmCache(parseJsonMap(this.storage.getLocal(cacheKey)));
         cache[this.carNum] = { type: result.matchType, url: result.pageUrl, time: Date.now() };
         this.storage.setLocal(cacheKey, JSON.stringify(cache));
@@ -126,9 +124,7 @@ class DmmPreviewParser {
                 cause: n,
                 retryable: error?.retryable === true
             }), clog.error("DMM API 搜索失败:", this.lastError);
-            const e = $("#fanzaBtn");
-            return e.attr("href", this.movie.searchUrl("dmm", { carNum: this.carNum })),
-            e.attr("title", "未查询到, 点击前往搜索页"), e.css("backgroundColor", "var(--jhs-status-filter)"), null;
+            return null;
         }
     }
 }
@@ -138,12 +134,36 @@ class DmmPreviewParser {
 
 /** 获取 DMM 预览源及可供界面判断的失败原因。 */
 /** @param {string | null} carNum @param {any} storage @param {any} movie @param {any} scope @returns {Promise<PreviewResult>} */
+const pendingByStorage = new WeakMap();
+
+/** Only evict the failed movie candidate. @param {string | null} carNum @param {any} storage */
+export function invalidateDmmPreview(carNum, storage) {
+    const cache = parseJsonMap(storage.getLocal(ee)), key = normalizeCarNum(carNum);
+    if (key && cache[key]) { delete cache[key]; storage.setLocal(ee, JSON.stringify(cache)); }
+}
+
+/** Deduplicate resolution with consumer-owned cancellation. @param {string | null} carNum @param {any} storage @param {any} movie @param {any} scope @returns {Promise<PreviewResult>} */
 export async function fetchDmmPreview(carNum, storage, movie, scope) {
-    const parser = new DmmPreviewParser(carNum, storage, movie, scope), sources = await parser.fetchVideo();
-    return {
-        sources,
-        error: parser.lastError
-    };
+    const key = normalizeCarNum(carNum) || "";
+    let requests = pendingByStorage.get(storage);
+    if (!requests) pendingByStorage.set(storage, requests = new Map());
+    let entry = requests.get(key);
+    if (!entry) {
+        const requestScope = new LifecycleScope("preview-resolver");
+        const parser = new DmmPreviewParser(key, storage, movie, requestScope);
+        entry = {scope:requestScope, consumers:0, promise:null};
+        entry.promise = Promise.resolve().then(() => parser.fetchVideo()).then(sources => ({sources,error:parser.lastError})).finally(() => {
+            if (requests.get(key) === entry) requests.delete(key);
+            requestScope.dispose();
+        });
+        requests.set(key,entry);
+    }
+    entry.consumers++;
+    let released = false;
+    const release = () => { if (released) return; released = true; if (--entry.consumers === 0) { entry.scope.dispose(); if (requests.get(key) === entry) requests.delete(key); } };
+    const unregister = scope?.addCleanup?.(release);
+    try { return await entry.promise; }
+    finally { unregister?.(); release(); }
 }
 
 /** DMM 子开关门禁：关闭时直接返回无源结果，不发起任何 DMM 请求。 */

@@ -1,5 +1,12 @@
 // @ts-nocheck
+import { DesktopQuickSettings } from "../../ui/settings/desktop-quick-settings.js";
+import { closeOwnedPopover, ownedPopoverRoots } from "../../core/owned-popover.js";
+import { acquirePageScrollLock } from "../../core/page-scroll-lock.js";
+import { renderTaskStatus } from "../../core/task-status-view.js";
+import { renderCarImportResult } from "../../ui/settings/car-number-import-view.js";
 
+import { PRODUCT_NAMES } from "../../core/product-names.js";
+import { getIcon } from "../../core/icons.js";
 import { i, l, normalizeCarNum, r, escapeHtml } from "../../core/constants.js";
 import { buildFallbackCarUrl, parseCarNumberText } from "../../core/feature-helpers.js";
 import { normalizeQuickFilterKey } from "../../features/list/list-filters.js";
@@ -33,6 +40,10 @@ export class SettingPlugin {
         this.route = options.route;
         this._resourceTestScopes = new Set();
         this._sourceRenderGeneration = 0;
+        this._carImportRevision = 0;
+        this._cloudLoginScope = null;
+        this._desktopQuickSurfaces = new Map();
+        this._quickSettingInstance = null;
         /** @type {any} */ this.featureExternalSitesAdapter = null;
         /** @type {any} */ this.featureCoverButtonAdapter = null;
         i(this, "folderName", "JHS-数据备份"), i(this, "resourceSettings", new ResourceSettingsService()), i(this, "pendingCarImport", null), i(this, "taskStatusUnsubscribe", null),
@@ -43,7 +54,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         }, {
             key: "jhs_other_site",
             text: "第三方站点缓存",
-            title: "第三方站点资源检测结果, 如missav,123Av等"
+            title: "第三方站点资源检测结果"
         }, {
             key: "jhs_screenShot",
             text: "缩略图缓存",
@@ -58,11 +69,11 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             title: "演员的年龄三围等数据信息"
         }, {
             key: "jhs_score_info",
-            text: "Top250|热播 评分数据",
-            title: "Top250及热播的评分数据"
+            text: "榜单评分缓存",
+            title: "榜单与热播评分"
         }, {
             key: "third_party_ttl_cache",
-            text: "第三方TTL缓存",
+            text: "第三方缓存",
             title: "评论、相关清单、磁力搜索、缩略图等请求缓存"
         }, {
             key: "_circuitBreaker",
@@ -104,6 +115,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             webdav: this.getRuntimeService("webdav"),
             jquery: this.jquery, document: this.document, legacyStorage: this.legacyStorage,
             utilities: this.utils, events: this.events, notifications: this.notifications, logger: this.logger, domUi: this.domUi, window: this.window,
+            getScope: this.getRuntimeService("scope"),
         });
     }
     async initCss() {
@@ -128,6 +140,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         this.syncDesktopSettingNav(profile.current() === "compact");
     }
     disposeQuickSettings() {
+        this._quickSettingInstance?.close(!1);
         this.jquery(".simple-setting, .mini-simple-setting").each((_, element) => disposeQuickSettingHost(element, this.jquery));
     }
     /** 桌面设置入口 Surface：compact 卸载，regular/wide 幂等挂载。 */
@@ -153,6 +166,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
                 if (generation !== this._desktopNavGeneration || !this._desktopSettingNavMounted) return;
                 this.jquery(".miniHistoryBtnBox").before('\n                    <div class="navbar-item mini-setting-box jhs-mini-setting-box">\n                        <button type="button" id="mini-setting-btn" class="jhs-btn navbar-link nav-btn jhs-nav-btn jhs-mini-setting-trigger">\n                            设置\n                        </button>\n                        <div class="mini-simple-setting"></div>\n                    </div>\n                '),
                 e();
+                this.mountDesktopQuickSettings();
             }), 20, 1e4, !0, scope);
             this._settingNavResizeCleanup?.();
             this._settingNavResizeCleanup = scope.listen(this.window, "resize", e);
@@ -171,37 +185,35 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             else if (commandbar.length) this.jquery('<div class="jhs-commandbar__primary"></div>').append(anchor).appendTo(commandbar);
             else if (listRoot.length) listRoot.before(anchor);
         }
-        this.jquery(".main-nav, .container-fluid").off("mouseenter.jhsSettingQuick mouseleave.jhsSettingQuick").on("mouseenter.jhsSettingQuick", ".setting-box", (async (event) => {
-            const host = this.jquery(event.currentTarget).find(".simple-setting");
-            disposeQuickSettingHost(host, this.jquery);
-            const generation = Number(host.data("jhsSettingsTemplateGeneration") || 0) + 1;
-            host.data("jhsSettingsTemplateGeneration", generation);
-            const { buildQuickSettingHtml } = await import("./setting-templates.js");
-            if (host.data("jhsSettingsTemplateGeneration") !== generation || this._settingScope?.disposed) return;
-            host.html(buildQuickSettingHtml(this.getRuntimeService("settingsRegistry"))).show();
-            try { await initQuickSettingForm(this.getFormDependencies(), this.getSelector.bind(this), this.openSettingDialog.bind(this), host); } catch (error) { this.logger.warn("桌面快捷设置初始化失败", error); }
-            this.logger.lowZIndex();
-        })).on("mouseleave.jhsSettingQuick", ".setting-box", ((event) => {
-            const host = this.jquery(event.currentTarget).find(".simple-setting");
-            host.data("jhsSettingsTemplateGeneration", Number(host.data("jhsSettingsTemplateGeneration") || 0) + 1);
-            disposeQuickSettingHost(host, this.jquery);
-        })).on("mouseenter.jhsSettingQuick", ".mini-setting-box", (async (event) => {
-            const host = this.jquery(event.currentTarget).find(".mini-simple-setting");
-            disposeQuickSettingHost(host, this.jquery);
-            const generation = Number(host.data("jhsSettingsTemplateGeneration") || 0) + 1;
-            host.data("jhsSettingsTemplateGeneration", generation);
-            const { buildQuickSettingHtml } = await import("./setting-templates.js");
-            if (host.data("jhsSettingsTemplateGeneration") !== generation || this._settingScope?.disposed) return;
-            host.html(buildQuickSettingHtml(this.getRuntimeService("settingsRegistry"))).show();
-            try { await initQuickSettingForm(this.getFormDependencies(), this.getSelector.bind(this), this.openSettingDialog.bind(this), host); } catch (error) { this.logger.warn("迷你快捷设置初始化失败", error); }
-            this.logger.lowZIndex();
-        })).on("mouseleave.jhsSettingQuick", ".mini-setting-box", ((event) => {
-            const host = this.jquery(event.currentTarget).find(".mini-simple-setting");
-            host.data("jhsSettingsTemplateGeneration", Number(host.data("jhsSettingsTemplateGeneration") || 0) + 1);
-            disposeQuickSettingHost(host, this.jquery);
-        }));
+        this.mountDesktopQuickSettings();
     }
+    /** Bind each hover host once and retain its shared settings binding until unmount. */
+    mountDesktopQuickSettings() {
+        for (const box of this.jquery(".setting-box, .mini-setting-box").toArray()) {
+            if (this._desktopQuickSurfaces.has(box)) continue;
+            const host = this.jquery(box).find(".simple-setting, .mini-simple-setting")[0];
+            if (!host || !this._settingScope) continue;
+            const surface = new DesktopQuickSettings({box, host, jquery:this.jquery, scope:this._settingScope,
+                onOpen: () => { for (const other of this._desktopQuickSurfaces.values()) if (other.box !== box) other.close(); },
+                initialize: async () => {
+                    const { buildQuickSettingHtml } = await import("./setting-templates.js");
+                    if (surface.scope.disposed || !box.isConnected) return;
+                    this.jquery(host).html(buildQuickSettingHtml(this.getRuntimeService("settingsRegistry")));
+                    await initQuickSettingForm(this.getFormDependencies(), this.getSelector.bind(this), async panel => {
+                        surface.close(); await this.openSettingDialog(panel);
+                    }, this.jquery(host));
+                    if (surface.scope.disposed) disposeQuickSettingHost(host, this.jquery);
+                    this.logger.lowZIndex();
+                },
+                onError: error => this.logger.warn("桌面快捷设置初始化失败", error),
+            });
+            this._desktopQuickSurfaces.set(box, surface);
+        }
+    }
+
     unmountDesktopSettingNav() {
+        for (const surface of this._desktopQuickSurfaces.values()) surface.dispose();
+        this._desktopQuickSurfaces.clear();
         this._desktopNavGeneration++;
         this._desktopSettingNavMounted = false;
         this._settingNavResizeCleanup?.();
@@ -212,80 +224,119 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
     }
     /** Open shared quick settings in the mobile bottom sheet. */
     async openQuickSetting() {
-        this.jquery("#jhs-quick-setting-backdrop, #jhs-quick-setting-sheet").remove();
-        const previousFocus = this.document.activeElement;
-        await this.getRuntimeService("settings").waitForIdle();
+        if (this._settingScope?.disposed) return;
+        const previousFocus = this._quickSettingInstance?.previousFocus ?? this.document.activeElement;
+        this._quickSettingInstance?.close(!1);
+        closeOwnedPopover(this.document);
+        const scope = new LifecycleScope("mobile-quick-settings");
+        let sheet = null, backdrop = null, quickRoot = null, releaseOwner = null;
         let closed = !1;
         const closeQuickSetting = (restoreFocus = !0) => {
             if (closed) return;
-            closed = !0, this.jquery(this.document).off("keydown.jhsQuickSetting");
-            const quickRoot = this.jquery("#jhs-quick-setting-sheet .jhs-quick-setting");
-            disposeQuickSettingHost(quickRoot, this.jquery);
-            this.jquery("#jhs-quick-setting-backdrop, #jhs-quick-setting-sheet").remove();
+            closed = !0;
+            scope.dispose();
+            releaseOwner?.();
+            if (sheet && ownedPopoverRoots(sheet[0]).length) closeOwnedPopover(this.document);
+            if (quickRoot) disposeQuickSettingHost(quickRoot, this.jquery);
+            sheet?.remove();
+            backdrop?.remove();
+            if (this._quickSettingInstance === instance) this._quickSettingInstance = null;
             restoreFocus && previousFocus?.isConnected && "function" == typeof previousFocus.focus && previousFocus.focus();
         };
-        const backdrop = this.jquery('<div id="jhs-quick-setting-backdrop" class="jhs-quick-setting-backdrop"></div>');
-        const sheet = this.jquery(`<section id="jhs-quick-setting-sheet" class="jhs-quick-setting-sheet jhs-ui" role="dialog" aria-modal="true" aria-labelledby="jhs-quick-setting-title">
-            <header class="jhs-quick-setting__header"><h2 id="jhs-quick-setting-title">快捷设置</h2><button type="button" class="jhs-btn jhs-btn--ghost jhs-quick-setting__close" aria-label="关闭快捷设置">×</button></header>
-            <div class="jhs-quick-setting"></div>
-        </section>`);
-        const quickRoot = sheet.find(".jhs-quick-setting");
-        const { buildQuickSettingHtml } = await import("./setting-templates.js");
-        quickRoot.html(buildQuickSettingHtml(this.getRuntimeService("settingsRegistry"))), this.jquery("body").append(backdrop, sheet), this.logger.lowZIndex();
-        backdrop.on("click.jhsQuickSetting", (() => closeQuickSetting())), sheet.on("click.jhsQuickSetting", ".jhs-quick-setting__close", (() => closeQuickSetting())),
-        this.jquery(this.document).off("keydown.jhsQuickSetting").on("keydown.jhsQuickSetting", (event => {
-            if ("Escape" === event.key) return event.preventDefault(), closeQuickSetting();
-            if ("Tab" !== event.key) return;
-            const focusable = sheet.find('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])').filter(((index, element) => !element.hidden && "true" !== element.getAttribute("aria-hidden")));
+        const instance = { close: closeQuickSetting, previousFocus, scope };
+        this._quickSettingInstance = instance;
+        releaseOwner = this._settingScope?.addCleanup?.(() => closeQuickSetting(!1));
+        scope.listen(this.document, "keydown", (event => {
+            if (event.defaultPrevented) return;
+            const portals = sheet ? ownedPopoverRoots(sheet[0]) : [];
+            if ("Escape" === event.key) {
+                if (portals.length) return;
+                event.preventDefault();
+                closeQuickSetting();
+                return;
+            }
+            if ("Tab" !== event.key || !sheet?.[0]?.isConnected) return;
+            const selector = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+            const focusable = [ ...sheet[0].querySelectorAll(selector), ...portals.flatMap(root => [ ...root.querySelectorAll(selector) ]) ].filter(element => !element.closest('[hidden],[aria-hidden="true"]'));
             if (!focusable.length) return void event.preventDefault();
             const first = focusable[0], last = focusable[focusable.length - 1];
-            event.shiftKey && this.document.activeElement === first ? (event.preventDefault(), last.focus()) : !event.shiftKey && this.document.activeElement === last && (event.preventDefault(), first.focus());
-        }));
+            const inside = sheet[0].contains(this.document.activeElement) || portals.some(root => root.contains(this.document.activeElement));
+            event.shiftKey && (this.document.activeElement === first || !inside) ? (event.preventDefault(), last.focus()) : !event.shiftKey && (this.document.activeElement === last || !inside) && (event.preventDefault(), first.focus());
+        }), !0);
         try {
+            await this.getRuntimeService("settings").waitForIdle();
+            if (closed) return;
+            const { buildQuickSettingHtml } = await import("./setting-templates.js");
+            if (closed) return;
+            backdrop = this.jquery('<div id="jhs-quick-setting-backdrop" class="jhs-quick-setting-backdrop"></div>');
+            sheet = this.jquery(`<section id="jhs-quick-setting-sheet" class="jhs-quick-setting-sheet jhs-ui" role="dialog" aria-modal="true" aria-labelledby="jhs-quick-setting-title">
+                <header class="jhs-quick-setting__header"><h2 id="jhs-quick-setting-title">快捷设置</h2><button type="button" class="jhs-btn jhs-btn--ghost jhs-quick-setting__close" aria-label="关闭快捷设置">${getIcon("x")}</button></header>
+                <div class="jhs-quick-setting"></div>
+            </section>`);
+            quickRoot = sheet.find(".jhs-quick-setting");
+            quickRoot.html(buildQuickSettingHtml(this.getRuntimeService("settingsRegistry")));
+            this.jquery(this.document.body).append(backdrop, sheet);
+            scope.addCleanup(acquirePageScrollLock(sheet[0]));
+            scope.listen(backdrop[0], "click", () => closeQuickSetting());
+            scope.listen(sheet.find(".jhs-quick-setting__close")[0], "click", () => closeQuickSetting());
+            this.logger.lowZIndex();
             await initQuickSettingForm(this.getFormDependencies(), this.getSelector.bind(this), (panel => {
+                if (closed) return;
                 closeQuickSetting(!1), void this.openSettingDialog(panel).catch((error => this.logger.error("完整设置打开失败", error)));
-            }), quickRoot), sheet.find(".jhs-quick-setting__close").trigger("focus");
+            }), quickRoot);
+            if (closed) return void disposeQuickSettingHost(quickRoot, this.jquery);
+            sheet.find(".jhs-quick-setting__close").trigger("focus");
         } catch (error) {
+            if (closed) return;
             closeQuickSetting(), this.logger.error("快捷设置初始化失败", error), this.notifications.error("快捷设置加载失败");
         }
     }
-    async openSettingDialog(e = "backup-panel", t) {
+    async openSettingDialog(e = "appearance-panel", t) {
+        this._quickSettingInstance?.close(!1);
+        for (const surface of this._desktopQuickSurfaces.values()) surface.close();
+        closeOwnedPopover(this.document);
         await this.getRuntimeService("settings").waitForIdle();
         const [templates, panels] = await Promise.all([import("./setting-templates.js"), import("./setting-panels.js")]);
         this._settingPanels = panels;
-        const s = templates.buildSettingDialogHtml(e, this.cacheItems);
+        this._settingTemplates = templates;
+        const initialPanel = e;
+        const s = templates.buildSettingDialogHtml(e, this.cacheItems, this.getRuntimeService("settingsRegistry"));
         this.getRuntimeService("dialog").open({
             type: 1,
             title: "设置",
             content: s,
-            ui: { size: "lg", body: "scroll" }, area: this.utils.getDialogArea("lg"),
+            ui: { size: "lg", body: "scroll", focus: "caller" }, area: this.utils.getDialogArea("lg"),
             scrollbar: !1,
             success: async (e, n) => {
                 const generation = ++this._settingsDialogGeneration;
+                this.pendingCarImport = null;
+                this._carImportRevision++;
                 const layerRoot = this.jquery(e);
                 this._settingsFocusCleanup?.();
-                this._settingsFocusCleanup = this.utils.trapFocus(layerRoot[0]);
+                this._settingsFocusCleanup = this.utils.trapFocus(layerRoot[0], layerRoot.find(".side-menu-item.active")[0]);
                 layerRoot.data("jhsSettingsGeneration", generation);
                 layerRoot.find(".layui-layer-content").css("position", "relative");
                 this.renderTaskStatuses(layerRoot);
-                templates.injectHealthPanel(this.jquery), templates.injectPluginMgmtPanel(this.jquery), templates.injectSnapshotPanel(this.jquery), templates.injectNetworkPanel(this.jquery), templates.injectResourceSourcesPanel(this.jquery);
+                templates.injectHealthPanel(this.jquery, layerRoot), templates.injectPluginMgmtPanel(this.jquery, layerRoot), templates.injectSnapshotPanel(this.jquery, layerRoot), templates.injectNetworkPanel(this.jquery, layerRoot), templates.injectResourceSourcesPanel(this.jquery, layerRoot);
                 const binding = this.hydrateLiveSettings(layerRoot);
                 this._fullSettingBinding = binding;
                 this.bindClick(layerRoot);
                 layerRoot.find(".side-menu-item.active").attr("aria-current", "page");
                 this.utils.setupEscClose(n), t && t();
                 this.renderTaskStatuses(layerRoot), this.taskStatusUnsubscribe?.(), this.taskStatusUnsubscribe = this.events.on("task-status-changed", (() => this.renderTaskStatuses(layerRoot)));
-                if (this.utils.isMobileMode()) {
-                    this.collapseAdvancedTabs(layerRoot);
-                }
+                this.activateSettingPanel(layerRoot, initialPanel);
                 const sections = await Promise.allSettled([ this.hydrateSettingForm(e, generation), this.loadResourceSettings(e, generation) ]), resourceResult = sections[1];
                 JhsSelect.refreshAll(e);
                 if (resourceResult.status === "rejected") {
-                    this.logger.error("resource-settings 加载失败", resourceResult.reason), this.getRuntimeService("diagnostics").recordError({ source: "resource-settings", message: resourceResult.reason?.message || String(resourceResult.reason) }), this.notifications.error("资源设置加载失败，基本设置仍可保存");
+                    this.logger.error("resource-settings 加载失败", resourceResult.reason), this.getRuntimeService("diagnostics").recordError({ source: "resource-settings", message: resourceResult.reason?.message || String(resourceResult.reason) }), this.notifications.error("资源设置加载失败，可保存其他设置");
                 }
             },
             end: () => {
                 this._settingsDialogGeneration++;
+                this.pendingCarImport = null;
+                this._carImportRevision++;
+                this._cloudLoginScope?.dispose();
+                this._cloudLoginScope = null;
                 this.cancelResourceTests();
                 this._fullSettingBinding?.dispose?.();
                 this._fullSettingBinding = null;
@@ -302,17 +353,17 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
     /** @param {JQueryHandle | HTMLElement} layerRoot */
     hydrateLiveSettings(layerRoot) {
         const root = this.jquery(layerRoot);
-        const host = root.find("#jhs-live-settings");
+        const hosts = root.find("[data-jhs-setting-section]");
         const registry = this.getRuntimeService("settingsRegistry"), settings = this.getRuntimeService("settings"), hostAdapter = this.getRuntimeService("host");
         const staticKeys = new Set([ "needClosePage", "themeMode", "mobileMode", "enableClog", "containerColumns", "containerWidth" ]);
         const descriptors = registry.list({ surfaces: [ "full" ] }).filter((descriptor) => (descriptor.effect || "live") === "live" && descriptor.section !== "cloud" && !staticKeys.has(descriptor.key));
-        if (host.length) {
-            descriptors.forEach((descriptor) => {
-                const { row } = renderSettingRow(descriptor, { value: settings.snapshot()[descriptor.key] ?? descriptor.defaultValue });
-                host.append(row);
-            });
-        }
-        const dynamicBinding = host.length ? bindSettingRows(host, descriptors, { settings }) : null;
+        descriptors.forEach((descriptor) => {
+            const host = hosts.filter(`[data-jhs-setting-section="${descriptor.section || "detail"}"]`).first();
+            if (!host.length) return;
+            const { row } = renderSettingRow(descriptor, { value: settings.snapshot()[descriptor.key] ?? descriptor.defaultValue });
+            host.append(row);
+        });
+        const dynamicBinding = hosts.length ? bindSettingRows(root, descriptors, { settings }) : null;
         const staticBindings = [];
         const registerStatic = (/** @type {any} */ config) => {
             const binding = bindSettingControl({ settings, root, ...config });
@@ -324,7 +375,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             getValue: () => root.find("#needClosePageBasic").is(":checked") ? "yes" : "no",
             setValue: (value) => root.find("#needClosePageBasic").prop("checked", value === "yes" || value === true),
             fallback: "yes",
-            label: "鉴定后立即关闭",
+            label: "鉴定后关闭详情页",
         });
         registerStatic({
             selector: "#themeMode",
@@ -372,7 +423,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             getValue: () => normalizeQuickFilterKey(root.find("#defaultQuickFilterTab").val()),
             setValue: (value) => root.find("#defaultQuickFilterTab").val(String(value ?? "")),
             fallback: "waitCheck",
-            label: "列表默认筛选",
+            label: "默认筛选",
         });
         if (!dynamicBinding && !staticBindings.length) return null;
         return {
@@ -394,19 +445,22 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
     /** @param {JQueryHandle | HTMLElement} layerRoot @param {number} generation */
     async hydrateSettingForm(layerRoot, generation) {
         const button = this.jquery(layerRoot).find("#saveBtn"), status = this.jquery(layerRoot).find("#settings-hydration-status");
-        button.attr("data-jhs-settings-ready", "false").prop("disabled", !0).attr("title", "正在加载设置…"), status.empty().text("正在加载设置…");
+        button.attr("data-jhs-settings-ready", "false").prop("disabled", !0).attr("title", "加载中…"), status.empty().text("加载中…");
         const root = this.jquery(layerRoot);
+        root.attr("aria-busy", "true");
         try {
             await loadSettingForm(this.getFormDependencies(), root);
             if (!button[0]?.isConnected || generation !== this._settingsDialogGeneration || root.data("jhsSettingsGeneration") !== generation) return !1;
-            JhsSelect.refreshAll(layerRoot), button.attr("data-jhs-settings-ready", "true").prop("disabled", !1).removeAttr("title"), status.empty().text("设置已加载");
+            JhsSelect.refreshAll(layerRoot), button.attr("data-jhs-settings-ready", "true").prop("disabled", !1).removeAttr("title data-tip"), status.empty().text("设置已加载");
             return !0;
         } catch (error) {
             if (!button[0]?.isConnected || generation !== this._settingsDialogGeneration || root.data("jhsSettingsGeneration") !== generation) return !1;
             this.logger.error("settings-form 加载失败", error), this.getRuntimeService("diagnostics").recordError({ source: "settings-form", message: error?.message || String(error) });
             const retry = this.jquery('<button type="button" class="jhs-btn jhs-btn--secondary">重试加载</button>').on("click", (() => void this.hydrateSettingForm(layerRoot, generation)));
-            status.empty().append(this.document.createTextNode("表单加载失败，已禁止保存。"), retry), this.notifications.error("设置表单加载失败，保存已禁用");
+            status.empty().append(this.document.createTextNode("设置加载失败，重试后可保存"), retry), this.notifications.error("设置加载失败，请重试");
             return !1;
+        } finally {
+            if (generation === root.data("jhsSettingsGeneration") || !root[0]?.isConnected) root.attr("aria-busy", "false");
         }
     }
     renderTaskStatuses(layerRoot = null) {
@@ -414,88 +468,47 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         if (!container.length) return;
         const taskPlugin = this.getOptionalDependency("TaskPlugin");
         if (!taskPlugin?.getTaskStatusSnapshot) return void container.empty();
-        const names = { blacklist: "黑名单", favoriteActress: "演员同步", newVideo: "新作品" }, labels = { idle: "正常", running: "运行中", pending: "等待下一次任务检查", due: "待运行" }, format = value => value ? new Date(value).toLocaleString() : "无";
-        container.empty(), [ "blacklist", "favoriteActress", "newVideo" ].forEach((name => {
-            const snapshot = taskPlugin.getTaskStatusSnapshot(name), row = this.jquery('<div class="jhs-setting-row jhs-task-setting-status"></div>');
-            row.append(this.jquery("<span class=\"setting-label\"></span>").text(`${names[name]}：${labels[snapshot.state]}`)), row.append(this.jquery("<span class=\"form-content jhs-helper-text\"></span>").text(`上次完成 ${format(snapshot.completedAt)}；下次检查 ${snapshot.nextAt ? format(snapshot.nextAt) : "立即"}`)), container.append(row);
-        }));
+        const settings = this.getRuntimeService("settings").snapshot();
+        container.empty();
+        for (const name of ["blacklist", "favoriteActress", "newVideo"]) container.append(renderTaskStatus(this.jquery, name, taskPlugin.getTaskStatusSnapshot(name), settings, true));
     }
-    collapseAdvancedTabs(layerRoot = null) {
-        const advancedPanels = [
-            { id: "health-panel", label: "数据体检", render: () => this._settingPanels.renderDataHealthPanel(this.getFormDependencies()) },
-            { id: "plugin-mgmt-panel", label: "插件管理", render: () => this._settingPanels.renderPluginMgmtPanel(this.getRuntimeService("diagnostics"), this.getRuntimeService("settings"), this.getFormDependencies()) },
-            { id: "snapshot-panel", label: "恢复点", render: () => this._settingPanels.renderSnapshotPanel(this.getFormDependencies()) },
-            { id: "network-panel", label: "外部请求", render: () => this._settingPanels.renderNetworkPanel(this.getRuntimeService("diagnostics"), this.getFormDependencies()) }
-        ];
-        const sidebar = this.jquery(".jhs-mobile-sidebar");
-        const contentParent = this.jquery(".content-panel").parent();
-        if (!sidebar.length || !contentParent.length) return;
-        advancedPanels.forEach(p => {
-            sidebar.find(`[data-panel="${p.id}"]`).remove();
-        });
-        if (!sidebar.find('[data-panel="more-tools-panel"]').length) {
-            sidebar.append('<button type="button" class="jhs-btn side-menu-item" data-panel="more-tools-panel" aria-controls="more-tools-panel">更多工具</button>');
-        }
-        if (this.jquery("#more-tools-panel").length) return;
-        let subTabsHtml = advancedPanels.map((p, i) =>
-            `<button type="button" role="tab" aria-selected="${i === 0}" tabindex="${i === 0 ? "0" : "-1"}" class="jhs-btn jhs-sub-tab${i === 0 ? " active" : ""}" data-sub-panel="${p.id}">${p.label}</button>`
-        ).join("");
-        let subPanelsHtml = advancedPanels.map((p, i) =>
-            `<div id="sub-${p.id}" class="jhs-sub-panel${i === 0 ? " active" : ""}" data-rendered="false"></div>`
-        ).join("");
-        const wrapperHtml = `
-            <div id="more-tools-panel" class="content-panel jhs-more-tools-panel">
-                <div class="jhs-sub-tabs" role="tablist" aria-label="更多工具">${subTabsHtml}</div>
-                <div class="jhs-sub-panels">${subPanelsHtml}</div>
-            </div>
-        `;
-        contentParent.append(wrapperHtml);
-        advancedPanels.forEach(p => {
-            const src = this.jquery(`#${p.id}`);
-            if (src.length) {
-                src.children().appendTo(`#sub-${p.id}`);
-                src.remove();
-                this.jquery(`#sub-${p.id}`).attr("data-rendered", "true");
-            }
-        });
-        sidebar.on("click", '[data-panel="more-tools-panel"]', (event) => {
-            this.jquery(".side-menu-item").removeClass("active").attr("aria-current", "false"), this.jquery(event.currentTarget).addClass("active").attr("aria-current", "page"), this.jquery(".content-panel").hide();
-            this.jquery("#more-tools-panel").show(), this.jquery("#saveBtn").show(), this.jquery("#clean-all").addClass("jhs-is-hidden");
-        });
-        this.jquery("#more-tools-panel").on("click", ".jhs-sub-tab", (event) => {
-            const target = this.jquery(event.currentTarget).data("sub-panel");
-            this.jquery("#more-tools-panel .jhs-sub-tab").removeClass("active").attr({ "aria-selected": "false", tabindex: "-1" });
-            this.jquery(event.currentTarget).addClass("active").attr({ "aria-selected": "true", tabindex: "0" });
-            this.jquery("#more-tools-panel .jhs-sub-panel").removeClass("active");
-            this.jquery(`#sub-${target}`).addClass("active");
-            if (this.jquery(`#sub-${target}`).attr("data-rendered") !== "true") {
-                this.jquery(`#sub-${target}`).attr("data-rendered", "true");
-            }
-            const panel = advancedPanels.find(p => p.id === target);
-            if (panel && panel.render) {
-                panel.render();
-            }
-        }).on("keydown", ".jhs-sub-tab", (e) => {
-            if (![ "ArrowLeft", "ArrowRight", "Home", "End" ].includes(e.key)) return;
-            e.preventDefault();
-            const tabs = this.jquery("#more-tools-panel .jhs-sub-tab"), current = tabs.index(e.currentTarget);
-            const next = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : e.key === "ArrowRight" ? (current + 1) % tabs.length : (current - 1 + tabs.length) % tabs.length;
-            tabs.eq(next).trigger("click").trigger("focus");
+    /** Switch categories without rebuilding controls or resetting form drafts. */
+    activateSettingPanel(layerRoot, panel) {
+        const root = this.jquery(layerRoot);
+        const target = this._settingTemplates.resolveSettingPanel(panel);
+        if (root.data("jhsActiveSettingGroup") === "resources-panel" && target.group !== "resources-panel") this.cancelResourceTests();
+        root.data("jhsActiveSettingGroup", target.group);
+        root.find(".side-menu-item").removeClass("active").removeAttr("aria-current");
+        const activeNav = root.find(`[data-panel="${target.group}"]`).addClass("active").attr("aria-current", "page");
+        activeNav[0]?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        root.find(".content-panel").removeClass("active").prop("hidden", true);
+        const group = root.find(`#${target.group}`).addClass("active").prop("hidden", false);
+        if (target.section) group.find(`#${target.section}`)[0]?.scrollIntoView?.({ block: "start" });
+        const dependencies = this.getFormDependencies();
+        const actions = target.group === "data-panel" ? [() => this._settingPanels.renderSnapshotPanel(dependencies)]
+            : target.group === "advanced-panel" ? [
+                () => this._settingPanels.renderDataHealthPanel(dependencies),
+                () => this._settingPanels.renderPluginMgmtPanel(this.getRuntimeService("diagnostics"), this.getRuntimeService("settings"), dependencies),
+                () => this._settingPanels.renderNetworkPanel(this.getRuntimeService("diagnostics"), dependencies),
+            ] : [];
+        void Promise.allSettled(actions.map((action) => Promise.resolve().then(action))).then((results) => {
+            for (const result of results) if (result.status === "rejected") this.logger.error("设置工具加载失败", result.reason);
         });
     }
     bindClick(layerRoot = null) {
-        const settingPlugin = this, dependencies = this.getFormDependencies(), webdav = this.getRuntimeService("webdav"), dialog = this.getRuntimeService("dialog"), diagnostics = this.getRuntimeService("diagnostics"), storage = this.getRuntimeService("storage"), translation = this.getRuntimeService("translation"), previewDiff = (diff, imported, restored = null) => this._settingPanels.showDiffPreview(diff, imported, restored, dialog, dependencies);
+        const dependencies = this.getFormDependencies(), webdav = this.getRuntimeService("webdav"), dialog = this.getRuntimeService("dialog"), diagnostics = this.getRuntimeService("diagnostics"), storage = this.getRuntimeService("storage"), translation = this.getRuntimeService("translation"), previewDiff = (diff, imported, restored = null) => this._settingPanels.showDiffPreview(diff, imported, restored, dialog, dependencies);
         const root = layerRoot ? this.jquery(layerRoot) : this.jquery(this.document);
-        root.find("#saveBtn").attr("data-jhs-settings-ready", "false").prop("disabled", !0).attr("title", "正在加载设置…");
-        root.find(".side-menu-item").on("click", ((event) => {
-            root.find(".side-menu-item").removeClass("active").attr("aria-current", "false"), this.jquery(event.currentTarget).addClass("active").attr("aria-current", "page"), root.find(".content-panel").hide();
-            const panel = this.jquery(event.currentTarget).data("panel");
-            root.find("#" + panel).show(), "cache-panel" === panel ? (root.find("#saveBtn").hide(), root.find("#clean-all").removeClass("jhs-is-hidden")) : (root.find("#saveBtn").show(),
-            root.find("#clean-all").addClass("jhs-is-hidden")), "health-panel" === panel && (root.find("#saveBtn").hide(), root.find("#clean-all").addClass("jhs-is-hidden"), this._settingPanels.renderDataHealthPanel(dependencies)),
-            "plugin-mgmt-panel" === panel && (root.find("#saveBtn").hide(), root.find("#clean-all").addClass("jhs-is-hidden"), this._settingPanels.renderPluginMgmtPanel(settingPlugin.getRuntimeService("diagnostics"), settingPlugin.getRuntimeService("settings"), dependencies)),
-            "snapshot-panel" === panel && (root.find("#saveBtn").hide(), root.find("#clean-all").addClass("jhs-is-hidden"), this._settingPanels.renderSnapshotPanel(dependencies)),
-            "network-panel" === panel && (root.find("#saveBtn").hide(), root.find("#clean-all").addClass("jhs-is-hidden"), this._settingPanels.renderNetworkPanel(diagnostics, dependencies));
-        }));
+        root.find("#saveBtn").attr("data-jhs-settings-ready", "false").prop("disabled", !0).attr("title", "加载中…");
+        root.find(".side-menu-item").off(".jhsSettingNav").on("click.jhsSettingNav", (event) => {
+            this.activateSettingPanel(root, this.jquery(event.currentTarget).data("panel"));
+        }).on("keydown.jhsSettingNav", (event) => {
+            if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const buttons = root.find(".side-menu-item"), index = buttons.index(event.currentTarget);
+            const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+                : ["ArrowRight", "ArrowDown"].includes(event.key) ? (index + 1) % buttons.length : (index - 1 + buttons.length) % buttons.length;
+            buttons.eq(next).trigger("click").trigger("focus");
+        });
         root.find("#importBtn").on("click", (e => importSettingData(previewDiff, dependencies)));
         root.find("#exportBtn").on("click", (e => exportSettingData(dependencies)));
         root.find("#preview-car-number-import").on("click", (() => this.previewCarNumbers(root)));
@@ -510,9 +523,11 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
                 // Success toast must only appear after all pending live writes on
                 // this Full settings surface have settled.
                 await this._fullSettingBinding?.flush?.({ throwOnFailure: true });
+                await this._cloudSettingBinding?.flush?.({ throwOnFailure: true });
                 const result = await saveSettingForm(this.getFormDependencies(), root);
                 if (result?.canceled) return;
-                this.notifications.ok("保存成功");
+                try { this.notifications.ok("已保存设置"); }
+                catch (error) { try { this.logger?.warn?.("设置已保存，完成提示显示失败", error); } catch { /* committed settings win */ } }
             } catch (error) {
                 if (error?.partialFailure) this.notifications.error("部分设置保存失败，请重试");
                 else this.notifications.error("设置保存失败");
@@ -523,27 +538,31 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         }));
         root.find("#runHealthCheckBtn").on("click", (() => this._settingPanels.renderDataHealthPanel(dependencies)));
         root.find("#repairHealthBtn").on("click", (e => {
-            this.utils.q(e, "修复前会自动下载备份，是否继续?", (() => this._settingPanels.repairDataHealthWithBackup(this.getFormDependencies())));
+            this.utils.q(e, "修复本地数据？修复前将下载备份", (() => this._settingPanels.repairDataHealthWithBackup(this.getFormDependencies())), null, { confirmText: "修复", cancelText: "取消" });
         }));
         root.find("#pm-clear-log").on("click", (() => {
-            this.getRuntimeService("diagnostics").clearErrors(), root.find("#plugin-error-log").text("无错误记录"), this.notifications.ok("错误日志已清空");
+            this.getRuntimeService("diagnostics").clearErrors(), root.find("#plugin-error-log").text("暂无错误记录"), this.notifications.ok("已清空错误日志");
         }));
         root.find("#createSnapshotBtn").on("click", (async () => {
-            let loadingHandle = this.domUi.loading();
+            const loadingHandle = this.domUi.loading();
             try {
-                await this.legacyStorage.createSnapshot("手动快照", "manual"), this.notifications.ok("快照创建成功"), this._settingPanels.renderSnapshotPanel(this.getFormDependencies());
+                await this.legacyStorage.createSnapshot("手动快照", "manual");
             } catch (error) {
-                this.logger.error(error), this.notifications.error("创建快照失败: " + error.message);
-            } finally { loadingHandle.close(); }
+                this.logger.error("快照创建失败", error), this.notifications.error("快照创建失败，请重试");
+                return;
+            } finally { try { loadingHandle.close(); } catch (error) { this.logger.warn?.("快照加载提示关闭失败", error); } }
+            try { this.notifications.ok("已创建快照"); } catch (error) { this.logger.warn?.("快照已创建，提示显示失败", error); }
+            try { await this._settingPanels.renderSnapshotPanel(this.getFormDependencies()); }
+            catch (error) { this.logger.error("快照已创建，列表刷新失败", error), this.notifications.info("已创建快照，请重新打开设置"); }
         }));
         root.find(".clean-btn").on("click", (async e => {
             const key = this.jquery(e.currentTarget).data("key"), cacheItem = this.cacheItems.find((item => item.key === key));
             key === this.legacyStorage.third_party_cache_key ? (await this.legacyStorage.clearThirdPartyCache(), await this.getRuntimeService("cache").clearNamespace("external-detail-v1")) : "_circuitBreaker" === key ? diagnostics.resetAllCircuitBreakers() : "_domainStats" === key ? diagnostics.clearDomainStats() : "jhs_translate" === key ? await translation.clearCache() : "jhs_actress_info" === key ? (await this.getRuntimeService("cache").clearNamespace("actress-info"), await storage.removeLocal(key)) : "jhs_screenShot" === key ? (await this.getRuntimeService("cache").clearNamespace("screenshot"), await storage.removeLocal(key)) : storage.removeLocal(key);
-            this.notifications.ok(`${cacheItem.text} 清理成功`), root.find("#cache-data-display").addClass("jhs-is-hidden");
+            this.notifications.ok("已清理所选缓存"), root.find("#cache-data-display").addClass("jhs-is-hidden");
             "jhs_dmm_video" === key && storage.removeLocal("jhs_other_site_dmm");
         }));
         root.find("#clean-all").on("click", (async () => {
-            this.cacheItems.forEach((item => "jhs_translate" !== item.key && storage.removeLocal(item.key))), await translation.clearCache(), await this.getRuntimeService("cache").clearAll(), this.notifications.ok("全部缓存已清理");
+            this.cacheItems.forEach((item => "jhs_translate" !== item.key && storage.removeLocal(item.key))), await translation.clearCache(), await this.getRuntimeService("cache").clearAll(), this.notifications.ok("已清理全部缓存");
             root.find("#cache-data-display").addClass("jhs-is-hidden"), storage.removeLocal("jhs_other_site_dmm"), await this.legacyStorage.clearThirdPartyCache();
         }));
         root.find(".view-btn").on("click", (async e => {
@@ -560,7 +579,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
                 pre.text(JSON.stringify(parsed, null, 2));
             } catch {
                 pre.text(raw);
-            } else pre.text("无数据");
+            } else pre.text("暂无数据");
         }));
         const numberInput = root.find("#highlightedTagNumber"), colorInput = root.find("#highlightedTagColor"), labelPreview = root.find("#highlightedTagLabel");
         function updatePreview() {
@@ -585,7 +604,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             void this.resourceSettings.saveScreenshotMode(this.resourceState.screenshot.mode).catch((error) => {
                 this.resourceState.screenshot.mode = previous;
                 root.find(`input[name="screenshotMode"][value="${previous}"]`).prop("checked", true);
-                this.logger.error("截图模式保存失败", error), this.notifications.error("截图模式保存失败，已恢复原设置");
+                this.logger.error("截图模式保存失败", error), this.notifications.error("截图模式保存失败，已恢复");
             });
         }));
         root.find("#add-custom-magnet-source").off("click.jhsResource").on("click.jhsResource", (() => this.openSourceDialog(null, root)));
@@ -599,14 +618,18 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         root.find("#import-resource-config").off("click.jhsResource").on("click.jhsResource", (async () => {
             try {
                 await this.resourceSettings.importConfig(root.find("#advanced-resource-json").val());
-                this.notifications.ok("资源配置导入成功");
+                this.notifications.ok("已导入资源配置");
                 await this.loadResourceSettings(root, generation);
                 JhsSelect.refreshAll();
-            } catch (error) { this.notifications.error(error.message); }
+            } catch (error) { this.logger?.error?.("资源设置操作失败", error), this.notifications.error("资源设置保存失败，请重试"); }
         }));
         root.find("#car-number-import,#car-number-import-status").off("input.jhsResource change.jhsResource").on("input.jhsResource change.jhsResource", (() => {
             this.pendingCarImport = null;
-            root.find("#confirm-car-number-import").prop("disabled", true).text("确认导入");
+            this._carImportRevision++;
+            const result = root.find("#car-number-import-preview");
+            if (!result.prop("hidden")) root.find("#car-number-import-help").text("内容已修改，请重新解析");
+            result.empty().prop("hidden", true);
+            root.find("#confirm-car-number-import").prop("disabled", true).text("导入记录");
         }));
         root.find("#check-one-one-five-login").off("click.jhsResource").on("click.jhsResource", (() => this.checkOneOneFiveLogin(root)));
     }
@@ -615,17 +638,28 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
     renderCloudSettings(root, cloud) {
         const host = root.find("#cloud-settings-catalog");
         if (!host.length) return;
-        this._cloudSettingBinding?.dispose?.();
         const registry = this.getRuntimeService("settingsRegistry"), settings = this.getRuntimeService("settings");
         const descriptors = registry.list({ surfaces: [ "full" ] }).filter((descriptor) => descriptor.section === "cloud");
+        if (this._cloudSettingBinding && host.find("[data-jhs-setting]").length) {
+            this._cloudSettingBinding.sync(settings.snapshot());
+            return;
+        }
         host.empty();
+        const groups = new Map();
+        for (const [key,title] of [["general","通用设置"],["123","123 云盘"],["115","115"]]) {
+            const group = this.jquery('<section class="jhs-setting-section jhs-cloud-section"></section>').attr("data-jhs-cloud-group", key);
+            group.append(this.jquery('<header class="jhs-setting-section__header"></header>').append(this.jquery("<h4></h4>").text(title)));
+            if (key === "115") group.append(this.jquery('<div class="jhs-toolbar"></div>').append(this.jquery("<span></span>").text("登录状态：").append(this.jquery('<span id="one-one-five-state" class="jhs-badge" role="status"></span>').text("未知")), '<button type="button" id="check-one-one-five-login" class="jhs-btn">检测登录</button>'));
+            host.append(group); groups.set(key,group);
+        }
         const valueFor = (key) => key === "offlineProviderMode" ? cloud.providerMode : key === "oneOneFiveConcurrency" ? cloud.concurrency : key === "oneOneFiveCacheMinutes" ? cloud.cacheMinutes : cloud[key];
         descriptors.forEach((descriptor) => {
             const rendered = renderSettingRow(descriptor, { value: valueFor(descriptor.key) });
             rendered.root.attr("id", descriptor.key);
-            host.append(rendered.row);
+            groups.get(descriptor.key === "offlineProviderMode" ? "general" : descriptor.key === "enable123Offline" ? "123" : "115").append(rendered.row);
         });
         this._cloudSettingBinding = bindSettingRows(host, descriptors, { settings });
+        host.find("#check-one-one-five-login").on("click.jhsResource", () => this.checkOneOneFiveLogin(root));
     }
     renderResourceSettings(root = this.jquery(this.document)) {
         this.cancelResourceTests();
@@ -633,10 +667,11 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         const card = (source, custom, kind) => {
             const node = this.jquery('<article class="jhs-card jhs-resource-card"></article>');
             const defaultType = "magnet" === kind ? "磁力来源" : "截图来源";
-            node.append(this.jquery('<div class="jhs-setting-row"></div>').append(this.jquery('<div></div>').append(this.jquery("<strong></strong>").text(source.name), source.experimental ? '<span class="jhs-badge">实验性</span>' : "", this.jquery("<small></small>").text(`${source.type || defaultType} · ${source.domain || (() => { try { return new URL(source.searchUrlTemplate).hostname; } catch { return "未配置域名"; } })()} · 优先级 ${source.priority}`)), this.jquery('<input type="checkbox" class="mini-switch jhs-source-toggle">').prop("checked", source.enabled)));
+            node.append(this.jquery('<div class="jhs-setting-row jhs-setting-row--action"></div>').append(this.jquery('<div></div>').append(this.jquery("<strong></strong>").text(source.name), source.experimental ? '<span class="jhs-badge">实验性</span>' : "", this.jquery("<small></small>").text(`${source.type || defaultType} · ${source.domain || (() => { try { return new URL(source.searchUrlTemplate).hostname; } catch { return "未配置域名"; } })()} · 优先级 ${source.priority}`)), this.jquery('<input type="checkbox" class="mini-switch jhs-source-toggle" role="switch">').prop("checked", source.enabled)));
             const actions = this.jquery('<div class="jhs-toolbar"></div>').append('<button type="button" class="jhs-btn jhs-source-test">测试</button>');
             if (custom) actions.append('<button type="button" class="jhs-btn jhs-source-edit">编辑</button><button type="button" class="jhs-btn jhs-btn--danger jhs-source-delete">删除</button>');
-            node.append(actions);
+            const row = node.children(".jhs-setting-row"), toggle = row.children("input").attr("aria-label", `启用 ${source.name}`);
+            actions.prepend(toggle).addClass("jhs-setting-row__control"); row.append(actions);
             node.on("change", ".jhs-source-toggle", async event => {
                 const previous = !event.currentTarget.checked;
                 source.enabled = event.currentTarget.checked;
@@ -666,20 +701,20 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
                 } catch (error) {
                     source.enabled = previous;
                     this.jquery(event.currentTarget).prop("checked", previous);
-                    this.notifications.error("来源设置保存失败，已恢复原设置");
+                    this.logger.error("来源设置保存失败", error), this.notifications.error("来源设置保存失败，已恢复");
                 }
             });
             node.on("click", ".jhs-source-test", event => {
                 const url = source.testMode === "host-page" ? null : source.testUrl || source.baseUrl || source.searchUrlTemplate?.replace("{keyword}", "test");
                 void this.testSource(event.currentTarget, url, { custom, source, renderGeneration });
             });
-            custom && node.on("click", ".jhs-source-edit", (() => this.openSourceDialog(source, root))).on("click", ".jhs-source-delete", (event => this.utils.q(event, `确认删除来源「${escapeHtml(source.name)}」？`, (async () => {
+            custom && node.on("click", ".jhs-source-edit", (() => this.openSourceDialog(source, root))).on("click", ".jhs-source-delete", (event => this.utils.q(event, `删除来源“${escapeHtml(source.name)}”？此操作无法撤销`, (async () => {
                 try {
                     await this.resourceSettings.updateArray("customMagnetSources", (list) => list.filter((item => item.id !== source.id)));
                     this.resourceState.custom = await this.resourceSettings.getMagnetSources();
                     this.renderResourceSettings(root);
-                } catch (error) { this.notifications.error(error.message); }
-            }))));
+                } catch (error) { this.logger?.error?.("资源设置操作失败", error), this.notifications.error("资源设置保存失败，请重试"); }
+            }), null, { confirmText: "删除", cancelText: "取消" })));
             return node;
         };
         root.find("#builtin-magnet-source-list").empty().append(this.resourceState.builtIn.map((source => card(source, false, "magnet"))));
@@ -696,24 +731,38 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         const list = "tag" === kind ? this.resourceState.tags : this.resourceState.filters, host = root.find("#magnet-" + kind + "-rule-list").empty();
         if (!list.length) host.append('<p class="jhs-setting-help">暂无规则</p>');
         list.forEach((rule => {
-            const node = this.jquery('<article class="jhs-card"></article>').append(this.jquery("<strong></strong>").text(rule.name), this.jquery("<p></p>").text(`${"regex" === rule.type ? "正则" : "包含"}：${rule.pattern}${"tag" === kind ? ` · 权重 ${Number(rule.weight) >= 0 ? "+" : ""}${rule.weight || 0}` : ` · ${"hide" === rule.action ? "隐藏" : `降权 ${rule.penalty || -20}`}`}`), '<div class="jhs-toolbar"><button class="jhs-btn jhs-rule-edit">编辑</button><button class="jhs-btn jhs-btn--danger jhs-rule-delete">删除</button></div>');
-            node.on("click", ".jhs-rule-edit", (() => this.openRuleDialog(kind, rule, root))).on("click", ".jhs-rule-delete", (event => this.utils.q(event, `确认删除规则「${escapeHtml(rule.name)}」？`, (async () => {
+            const node = this.jquery('<article class="jhs-card jhs-record-card"></article>').append(this.jquery("<strong></strong>").text(rule.name), this.jquery("<p></p>").text(`${"regex" === rule.type ? "正则" : "包含"}：${rule.pattern}${"tag" === kind ? ` · 权重 ${Number(rule.weight) >= 0 ? "+" : ""}${rule.weight || 0}` : ` · ${"hide" === rule.action ? "隐藏" : `降权 ${rule.penalty || -20}`}`}`), '<div class="jhs-toolbar"><button class="jhs-btn jhs-rule-edit">编辑</button><button class="jhs-btn jhs-btn--danger jhs-rule-delete">删除</button></div>');
+            node.on("click", ".jhs-rule-edit", (() => this.openRuleDialog(kind, rule, root))).on("click", ".jhs-rule-delete", (event => this.utils.q(event, `删除规则“${escapeHtml(rule.name)}”？此操作无法撤销`, (async () => {
                 try {
                     await this.resourceSettings.updateArray("tag" === kind ? "magnetTagRules" : "magnetFilterRules", (list) => list.filter((item => item.id !== rule.id)));
                     this.resourceState["tag" === kind ? "tags" : "filters"] = await this.resourceSettings.getArray("tag" === kind ? "magnetTagRules" : "magnetFilterRules");
                     this.renderRules(kind, root);
-                } catch (error) { this.notifications.error(error.message); }
-            }))));
+                } catch (error) { this.logger?.error?.("资源设置操作失败", error), this.notifications.error("资源设置保存失败，请重试"); }
+            }), null, { confirmText: "删除", cancelText: "取消" })));
             host.append(node);
         }));
     }
+    /** Keep editor controls and native change events while sharing FieldRow geometry. */
+    normalizeEditorRows(content) {
+        content.find("label").not(".jhs-setting-row").each((_index,element)=>{
+            const label=this.jquery(element), control=label.children("input,select,textarea").first();
+            if (!control.length) return;
+            const title=label.clone().children().remove().end().text().trim();
+            control.detach().attr("aria-label",title);
+            label.empty().addClass("jhs-setting-row jhs-setting-row--stacked")
+                .append(this.jquery('<span class="jhs-setting-row__copy"><span class="jhs-setting-row__label"></span></span>').find("span").text(title).end(),this.jquery('<span class="jhs-setting-row__control"></span>').append(control));
+        });
+        JhsSelect.enhance(content);
+    }
     openSourceDialog(existing = null, root = null) {
         const dialog = this.getRuntimeService("dialog"), fields = ["rowSelector","titleSelector","magnetSelector","sizeSelector","dateSelector","seedersSelector","leechersSelector","resultsPath","titlePath","magnetPath","hashPath","sizePath","datePath","seedersPath"];
-        const content = this.jquery(`<div class="jhs-setting-section jhs-resource-form"><label>名称<input name="name" class="jhs-field"></label><label>启用<input name="enabled" type="checkbox" class="mini-switch"></label><label>优先级<input name="priority" type="number" class="jhs-field" min="1"></label><label>搜索地址模板<input name="searchUrlTemplate" class="jhs-field"></label><label>原网页地址模板<input name="targetUrlTemplate" class="jhs-field"></label><label>解析类型<select name="parserType" class="jhs-select-source"><option value="magnet-links">自动寻找磁力链接</option><option value="torrent-table">表格/列表页面</option><option value="json">JSON API</option></select></label><div class="jhs-parser-fields"></div></div>`);
+        const fieldLabels = { rowSelector: "结果行选择器", titleSelector: "标题选择器", magnetSelector: "磁力选择器", sizeSelector: "大小选择器", dateSelector: "日期选择器", seedersSelector: "做种数选择器", leechersSelector: "下载数选择器", resultsPath: "结果列表路径", titlePath: "标题字段路径", magnetPath: "磁力字段路径", hashPath: "哈希字段路径", sizePath: "大小字段路径", datePath: "日期字段路径", seedersPath: "做种数字段路径" };
+        const content = this.jquery(`<div class="jhs-setting-section jhs-resource-form jhs-scrollbar"><label>名称<input name="name" class="jhs-field"></label><label>开启<input name="enabled" type="checkbox" class="jhs-checkbox"></label><label>优先级<input name="priority" type="number" class="jhs-field" min="1"></label><label>搜索地址模板<input name="searchUrlTemplate" class="jhs-field"></label><label>原网页地址模板<input name="targetUrlTemplate" class="jhs-field"></label><label>解析类型<select name="parserType" class="jhs-select-source"><option value="magnet-links">自动寻找磁力链接</option><option value="torrent-table">表格或列表页面</option><option value="json">${PRODUCT_NAMES.json} 接口</option></select></label><div class="jhs-parser-fields"></div></div>`);
         const renderFields = () => {
             const type = content.find('[name="parserType"]').val(), names = "torrent-table" === type ? fields.slice(0, 7) : "json" === type ? fields.slice(7) : [];
-            content.find(".jhs-parser-fields").html(names.map((name => `<label>${name}<input name="${name}" class="jhs-field"></label>`)).join(""));
+            content.find(".jhs-parser-fields").html(names.map((name => `<label>${fieldLabels[name]}<input name="${name}" class="jhs-field"></label>`)).join(""));
             names.forEach((name => content.find(`[name="${name}"]`).val(existing?.[name] || "")));
+            this.normalizeEditorRows(content);
         };
         Object.entries(existing || { enabled: true, priority: 100, parserType: "magnet-links" }).forEach(([key, value]) => {
             const input = content.find(`[name="${key}"]`);
@@ -735,17 +784,18 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
                 });
                 this.resourceState.custom = await this.resourceSettings.getMagnetSources();
                 dialog.close(index), root && this.renderResourceSettings(root);
-            } catch (error) { this.notifications.error(error.message); }
+            } catch (error) { this.logger?.error?.("资源设置操作失败", error), this.notifications.error("资源设置保存失败，请重试"); }
             finally { saving = false; }
         } });
     }
     openRuleDialog(kind, existing = null, root = null) {
         const dialog = this.getRuntimeService("dialog"), isTag = "tag" === kind;
-        const content = this.jquery(`<div class="jhs-setting-section"><label>名称<input name="name" class="jhs-field"></label>${isTag ? "" : '<label>匹配范围<select name="target" class="jhs-select-source"><option value="title">标题</option><option value="file">文件名</option></select></label>'}<label>匹配方式<select name="type" class="jhs-select-source"><option value="contains">包含</option><option value="regex">正则</option></select></label><label>匹配内容<input name="pattern" class="jhs-field"></label>${isTag ? '<label>权重<input name="weight" type="number" class="jhs-field"></label>' : '<label>动作<select name="action" class="jhs-select-source"><option value="hide">隐藏</option><option value="penalty">降权</option></select></label><label>降权分数<input name="penalty" type="number" class="jhs-field"></label>'}<label>启用<input name="enabled" type="checkbox" class="mini-switch"></label></div>`);
+        const content = this.jquery(`<div class="jhs-setting-section jhs-resource-form jhs-rule-form jhs-scrollbar"><label>名称<input name="name" class="jhs-field"></label>${isTag ? "" : '<label>匹配范围<select name="target" class="jhs-select-source"><option value="title">标题</option><option value="file">文件名</option></select></label>'}<label>匹配方式<select name="type" class="jhs-select-source"><option value="contains">包含</option><option value="regex">正则</option></select></label><label>匹配内容<input name="pattern" class="jhs-field"></label>${isTag ? '<label>权重<input name="weight" type="number" class="jhs-field"></label>' : '<label>动作<select name="action" class="jhs-select-source"><option value="hide">隐藏</option><option value="penalty">降权</option></select></label><label>降权分数<input name="penalty" type="number" class="jhs-field"></label>'}<label>开启<input name="enabled" type="checkbox" class="jhs-checkbox"></label></div>`);
         Object.entries(existing || { enabled: true, type: "contains", weight: 0, action: "hide", penalty: -20 }).forEach(([key, value]) => {
             const input = content.find(`[name="${key}"]`);
             "checkbox" === input.attr("type") ? input.prop("checked", value) : input.val(value);
         });
+        this.normalizeEditorRows(content);
         content.appendTo("body").hide();
         let saving = false;
         dialog.open({ type: 1, title: `${existing ? "编辑" : "新建"}${isTag ? "标签" : "过滤"}规则`, content, ui: { size: "sm", body: "scroll" }, area: this.utils.getDialogArea("sm"), btn: ["保存", "取消"], success: () => content.show(), end: () => content.remove(), yes: async index => {
@@ -765,7 +815,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
                 });
                 this.resourceState[isTag ? "tags" : "filters"] = await this.resourceSettings.getArray(isTag ? "magnetTagRules" : "magnetFilterRules");
                 dialog.close(index), root && this.renderRules(kind, root);
-            } catch (error) { this.notifications.error(error.message); }
+            } catch (error) { this.logger?.error?.("资源设置操作失败", error), this.notifications.error("资源设置保存失败，请重试"); }
             finally { saving = false; }
         } });
     }
@@ -773,12 +823,29 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         await this.resourceSettings.saveCloudSettings({ enable123Offline: root.find("#enable123Offline").is(":checked"), enable115Offline: root.find("#enable115Offline").is(":checked"), providerMode: root.find("#offlineProviderMode").val(), enable115Match: root.find("#enable115Match").is(":checked"), enable115LoginRedirect: root.find("#enable115LoginRedirect").is(":checked"), concurrency: Number(root.find("#oneOneFiveConcurrency").val()), cacheMinutes: Number(root.find("#oneOneFiveCacheMinutes").val()) });
     }
     async checkOneOneFiveLogin(root = this.jquery(this.document)) {
+        const button = root.find("#check-one-one-five-login");
+        if (button.prop("disabled")) return;
+        const generation = this._settingsDialogGeneration;
+        const scope = new LifecycleScope(`settings-cloud-login-${generation}`);
+        let releaseParent;
+        this._cloudLoginScope?.dispose();
+        this._cloudLoginScope = scope;
+        button.prop("disabled", true);
+        const isCurrent = () => !scope.disposed && generation === this._settingsDialogGeneration && button[0]?.isConnected;
         const badge = root.find("#one-one-five-state").text("检测中");
         try {
-            const scope = await this.getRuntimeService("scope")(), result = await this.getRuntimeService("offline").checkAccount("one115", { scope });
-            badge.text(result.authenticated ? "已登录" : "未登录");
+            const parentScope = await this.getRuntimeService("scope")?.();
+            if (!isCurrent()) return;
+            releaseParent = parentScope?.addCleanup?.(() => scope.dispose());
+            const result = await this.getRuntimeService("offline").checkAccount("one115", { scope });
+            if (isCurrent()) badge.text(result.authenticated ? "已登录" : "未登录");
         } catch {
-            badge.text("检测失败");
+            if (isCurrent()) badge.text("检测失败");
+        } finally {
+            if (isCurrent()) button.prop("disabled", false);
+            scope.dispose();
+            releaseParent?.();
+            if (this._cloudLoginScope === scope) this._cloudLoginScope = null;
         }
     }
     cancelResourceTests() {
@@ -786,7 +853,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         this._resourceTestScopes.clear();
     }
     async testSource(button, url, options = {}) {
-        if (!url) return this.notifications.info(options.source?.testMode === "host-page" ? "本站资源依赖当前页面，无需单独检测" : "未配置来源检测地址");
+        if (!url) return this.notifications.info(options.source?.testMode === "host-page" ? "此来源使用当前页面" : "请设置来源检测地址");
         const node = this.jquery(button);
         if (node.prop("disabled")) return;
         const generation = this._settingsDialogGeneration, renderGeneration = options.renderGeneration ?? this._sourceRenderGeneration;
@@ -821,16 +888,30 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
     }
     previewCarNumbers(root = this.jquery(this.document)) {
         const parsed = parseCarNumberText(root.find("#car-number-import").val()), actionType = root.find("#car-number-import-status").val();
-        this.pendingCarImport = actionType && parsed.values.length ? { ...parsed, actionType } : null;
-        root.find("#car-number-import-preview").text(`识别 ${parsed.recognized} 条 · 有效 ${parsed.values.length} · 重复 ${Math.max(0, parsed.recognized - parsed.values.length - parsed.invalid.length)} · 无效 ${parsed.invalid.length}${parsed.invalid.length ? ` · 异常示例：${parsed.invalid.slice(0, 5).join("、")}` : ""}`);
-        root.find("#confirm-car-number-import").prop("disabled", !this.pendingCarImport).text(this.pendingCarImport ? `确认导入 ${parsed.values.length} 条` : "确认导入");
-        if (!actionType) this.notifications.info("请选择导入状态");
+        const revision = ++this._carImportRevision, raw = String(root.find("#car-number-import").val() || "");
+        this.pendingCarImport = actionType && parsed.values.length ? { ...parsed, actionType, revision, raw } : null;
+        const message = !raw.trim() ? "请先填写番号" : !parsed.values.length ? "未识别到有效番号" : !actionType ? "请选择导入状态" : "";
+        root.find("#car-number-import-help").text("展开明细可查看有效番号和异常项");
+        renderCarImportResult(this.jquery, root.find("#car-number-import-preview"), parsed, root.find("#car-number-import-status option:selected").text(), message);
+        root.find("#confirm-car-number-import").prop("disabled", !this.pendingCarImport).text(this.pendingCarImport ? `导入 ${parsed.values.length} 条` : "导入记录");
     }
     async confirmCarNumbers(event, root = this.jquery(this.document)) {
         if (!this.pendingCarImport) return this.notifications.info("请先解析预览");
         const pending = this.pendingCarImport;
-        this.utils.q(event, `确认导入 ${pending.values.length} 条记录？`, (async () => {
-            const existing = new Map((await this.legacyStorage.getCarList()).map((item => [normalizeCarNum(item.carNum), item]))), summary = { added: 0, updated: 0, failed: 0 }, flag = legacyActionToFlag(pending.actionType);
+        if (pending.running) return;
+        this.utils.q(event, `导入 ${pending.values.length} 条记录？将添加所选状态`, (async () => {
+            if (pending.running || this.pendingCarImport !== pending || pending.revision !== this._carImportRevision || String(root.find("#car-number-import").val() || "") !== pending.raw || root.find("#car-number-import-status").val() !== pending.actionType || !root[0]?.isConnected) return;
+            pending.running = true;
+            root.find("#confirm-car-number-import").prop("disabled", true);
+            let existing;
+            try { existing = new Map((await this.legacyStorage.getCarList()).map(item => [normalizeCarNum(item.carNum), item])); }
+            catch (error) {
+                pending.running = false;
+                this.logger.warn("番号导入读取失败", error);
+                if (this.pendingCarImport === pending && root[0]?.isConnected) root.find("#confirm-car-number-import").prop("disabled", false);
+                return this.notifications.error("读取现有记录失败，请重试");
+            }
+            const summary = { added: 0, updated: 0, failed: 0 }, flag = legacyActionToFlag(pending.actionType);
             const state = this.getRuntimeService("state");
             const records = pending.values.map((rawCarNum) => {
                 const carNum = normalizeCarNum(rawCarNum), current = existing.get(carNum);
@@ -848,9 +929,13 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
                     this.logger.warn("番号批量导入块失败", error);
                 }
             }
-            this.pendingCarImport = null;
-            root.find("#confirm-car-number-import").prop("disabled", true);
-            this.notifications.ok(`导入完成：新增 ${summary.added}，更新 ${summary.updated}，失败 ${summary.failed}`);
-        }));
+            if (this.pendingCarImport === pending) this.pendingCarImport = null;
+            const message = `已导入 ${summary.added + summary.updated} 条${summary.failed ? `，失败 ${summary.failed} 条，请核对后重试` : ""}`;
+            if (pending.revision === this._carImportRevision && root[0]?.isConnected) {
+                root.find("#confirm-car-number-import").prop("disabled", true).text("导入记录");
+                renderCarImportResult(this.jquery, root.find("#car-number-import-preview"), pending, "", message, summary);
+            }
+            (summary.failed ? this.notifications.error : this.notifications.ok).call(this.notifications,message);
+        }), null, { confirmText: "导入", cancelText: "取消" });
     }
 }

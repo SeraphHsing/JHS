@@ -17,6 +17,7 @@ function loadController() {
     const context = vm.createContext({
         document: dom.window.document, $, m: "屏蔽", u: "取消屏蔽", v: "收藏", b: "取消收藏", y: "标记下载", k: "标记观看",
         normalizeCarNum: value => String(value).trim().toUpperCase(),
+        escapeHtml: value => String(value).replaceAll("<", "&lt;"),
         normalizeStateFlags: flags => ({ blocked: false, favorite: false, downloaded: false, watched: false, ...flags }),
         storageManager: { getCar: async carNum => records.get(carNum) },
         utils: { q: confirm, closePage }, show: { error: vi.fn() }, clog: { error: vi.fn() }

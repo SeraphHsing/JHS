@@ -33,7 +33,10 @@ describe("DomUiService", () => {
         const image = new JSDOM("", { url: "https://example.test/" }).window.document.createElement("img"), openImageViewer = vi.fn();
         const ui = new DomUiService(value => value, undefined, openImageViewer);
         ui.openImageViewer(image);
-        expect(openImageViewer).toHaveBeenCalledWith(image);
+        expect(openImageViewer).toHaveBeenCalledWith(image, "", undefined);
+        const options = { trigger: image };
+        ui.openImageViewer("https://example.test/image.jpg", options);
+        expect(openImageViewer).toHaveBeenCalledWith("https://example.test/image.jpg", "", options);
         expect(() => new DomUiService(value => value).openImageViewer(image)).toThrow("图片查看器尚未加载");
     });
 

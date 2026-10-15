@@ -45,7 +45,7 @@ test("quick-filter buttons change card visibility without a full state refresh",
   await expect(card).toBeHidden();
 
   await page.locator("#jhs-quick-filter .jhs-quick-filter__toggle").click();
-  await page.locator('#jhs-quick-filter [data-jhs-filter="blockedItems"]').click();
+  await page.locator('.jhs-owned-popover .jhs-filter-option[data-jhs-filter="blockedItems"]').click();
   await expect(page.locator('#jhs-quick-filter [data-jhs-filter="blockedItems"]')).toHaveAttribute("aria-checked", "true");
   await expect(card).toBeHidden();
 });

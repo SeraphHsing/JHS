@@ -52,9 +52,10 @@ export class ListBatchController {
         const subtitleWarning = subtitleFilter === "with" || subtitleFilter === "without"
             ? " 当前字幕筛选只影响显示，不限制批量处理范围。" : "";
         const confirmText = (isPageScopedList
-            ? (normalized === "all" ? `将处理${pageName}内的所有作品，包括屏蔽项。` : `将处理${pageName}内符合「${filterLabel}」筛选的作品。`)
-            : (normalized === "all" ? "将处理当前搜索全部分页的所有作品，包括屏蔽项。" : `将处理当前搜索全部分页中符合「${filterLabel}」筛选的作品。`)) + subtitleWarning;
-        if (confirm && !await this.ui.confirm(confirmText)) return { cancelled: true };
+            ? (normalized === "all" ? `将处理${pageName}内的所有影片，包括屏蔽项。` : `将处理${pageName}内符合「${filterLabel}」筛选的影片。`)
+            : (normalized === "all" ? "将处理当前搜索全部分页的所有影片，包括屏蔽项。" : `将处理当前搜索全部分页中符合「${filterLabel}」筛选的影片。`)) + subtitleWarning;
+        const actionText = { blocked: "屏蔽", favorite: "收藏", downloaded: "标记已下载", watched: "标记已观看" }[stateFlag];
+        if (confirm && !await this.ui.confirm(confirmText, { confirmText: actionText })) return { cancelled: true };
         if (this.disposed || this.scope.disposed) return { cancelled: true };
 
         const run = tryBeginBatchRun();

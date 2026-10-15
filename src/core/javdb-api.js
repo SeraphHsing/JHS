@@ -91,7 +91,11 @@ export const V = async (/** @type {string} */ e) => {
         if (!e.data) throw new Error(e.message || "获取视频详情失败");
         return e;
     }));
-    if (!a.data) throw show.error("获取视频详情失败: " + a.message), new Error(a.message);
+    if (!a.data) {
+        const error = new Error(a.message);
+        clog.error("影片详情加载失败", error), show.error("影片详情加载失败，请重试");
+        throw error;
+    }
     const i = a.data.movie, s = i.preview_images;
     /** @type {string[]} */
     const o = [];

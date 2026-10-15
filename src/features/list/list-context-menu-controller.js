@@ -42,12 +42,13 @@ export class ListContextMenuController {
             let actorName = this.getActorName();
             this.ui.confirm(
                 { clientX: /** @type {MouseEvent} */ (event).clientX, clientY: /** @type {MouseEvent} */ (event).clientY },
-                `是否屏蔽番号 ${escapeHtml(carNum)}?`,
+                `屏蔽「${escapeHtml(carNum)}」？`,
                 () => this.blockMovie({ carNum, url, publishTime, fc2Source, actorName }),
+                { confirmText: "屏蔽" },
             );
         } catch (error) {
             this.recordError("右键屏蔽菜单处理失败", error);
-            if (!this.scope.disposed) this.notifications.error("操作失败");
+            if (!this.scope.disposed) this.notifications.error("屏蔽失败，请重试");
         }
     }
 
@@ -66,11 +67,11 @@ export class ListContextMenuController {
                 record: { carNum: record.carNum, url: record.url, names, publishTime: record.publishTime, fc2Source: record.fc2Source },
             });
             if (this.disposed || this.scope.disposed) return;
-            this.notifications.ok("操作成功");
+            this.notifications.ok("已屏蔽");
         } catch (error) {
             if (this.disposed || this.scope.disposed) return;
             this.recordError("列表屏蔽操作失败", error);
-            this.notifications.error("操作失败");
+            this.notifications.error("屏蔽失败，请重试");
         }
     }
 

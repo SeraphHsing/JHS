@@ -28,8 +28,12 @@ describe("v6.4.1 frozen UI contracts", () => {
         expect(mobile).toContain('aria-controls="jhs-commandbar-more-menu"');
         expect(mobile).toContain('aria-controls="jhs-commandbar-batch-menu"');
         expect(mobile).toContain('if ("Escape" === event.key)');
-        expect(mobile).toContain('if ("Tab" === event.key)');
-        expect(mobile).toContain('toggle.attr("aria-expanded", "false").trigger("focus")');
+        const popover = read("src/core/owned-popover.js");
+        expect(mobile).toContain("new OwnedPopover(toggle[0], menu[0])");
+        expect(popover).toContain('event.key === "Escape"');
+        expect(popover).toContain('event.key === "Tab"');
+        expect(popover).toContain('this.anchor.setAttribute("aria-expanded", "false")');
+        expect(popover).toContain("restoreFocus && this.anchor.isConnected");
         expect(mobile).not.toContain('cur === "default" ? "rateCount"');
     });
 
@@ -44,7 +48,10 @@ describe("v6.4.1 frozen UI contracts", () => {
     });
 
     it("builds string image previews with DOM properties instead of HTML interpolation", () => {
-        expect(logger).toContain('image.src = String(t), image.alt = String(n)');
+        const viewer = read("src/core/image-viewer.js");
+        expect(viewer).toContain('image.setAttribute("data-jhs-viewer-source", String(item.url))');
+        expect(viewer).toContain('image.alt = String(item.alt || alt)');
+        expect(viewer).not.toContain('innerHTML');
         expect(logger).not.toContain('append(`<img src="${t}" alt="${n}">`)');
     });
 

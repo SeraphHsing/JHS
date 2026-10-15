@@ -23,7 +23,7 @@ describe("RC 收口：async 回流 gate", () => {
 
     it("cover-button and JavBus preview invalidate in-flight DMM fetches on OFF", () => {
         expect(coverButton).toContain("this.previewGeneration++");
-        expect(coverButton).toContain("generation !== this.previewGeneration || scope.disposed || !isPreviewEnabled(");
+        expect(coverButton).toContain("this.activePreview === session && !session.scope.disposed && session.card.isConnected && isPreviewEnabled(");
         expect(busPreview).toContain("this.generation += 1");
         expect(busPreview).toContain("generation !== this.generation || this.scope.disposed || !isPreviewEnabled(");
     });
@@ -58,7 +58,10 @@ describe("RC 收口：UI surface 与宿主 DOM 边界", () => {
 
     it("AutoPage stops on feature scope dispose and unifies the first-start promise", () => {
         expect(autoPage).toContain("this.scope.addCleanup(() => this.dispose())");
-        expect(autoPage).toContain("this.waterfallPromise = this.waterfall().finally");
+        expect(autoPage).toContain("const pending = this.waterfall().finally");
+        expect(autoPage).toContain("if (this.waterfallPromise === pending) this.waterfallPromise = null");
+        expect(autoPage).toContain("this.waterfallPromise = pending");
+        expect(autoPage).toContain("if (this.started) return this.waterfallPromise || Promise.resolve(true)");
     });
 });
 

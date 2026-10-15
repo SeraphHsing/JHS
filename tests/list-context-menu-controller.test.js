@@ -42,7 +42,7 @@ describe("List Feature context-menu action", () => {
 
         expect(event.defaultPrevented).toBe(true);
         expect(list.findCarNumAndHref).toHaveBeenCalledOnce();
-        expect(confirm).toHaveBeenCalledWith({ clientX: 12, clientY: 24 }, expect.stringContaining("&lt;img"), expect.any(Function));
+        expect(confirm).toHaveBeenCalledWith({ clientX: 12, clientY: 24 }, expect.stringContaining("&lt;img"), expect.any(Function), { confirmText: "屏蔽" });
         const message = confirm.mock.calls[0][1];
         const rendered = dom.window.document.createElement("div");
         rendered.innerHTML = message;
@@ -55,7 +55,7 @@ describe("List Feature context-menu action", () => {
                 carNum: '<img src=x onerror="alert(1)">', url: "/v/abc-123", names: "Actress", publishTime: "2026-08-25", fc2Source: "fc2",
             },
         });
-        expect(notifications.ok).toHaveBeenCalledWith("操作成功");
+        expect(notifications.ok).toHaveBeenCalledWith("已屏蔽");
     });
 
     it("does not commit an actress lookup that finishes after the list scope closes", async () => {

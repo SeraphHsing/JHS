@@ -17,7 +17,7 @@ export async function renderTranslatedTitle(options) {
     if (!sourceText) throw new TypeError("获取标题失败, 无法进行翻译");
     let translatedNode = title.nextAll(".translated-title").first();
     if (!translatedNode.length) translatedNode = jq('<div class="translated-title"></div>').insertAfter(title);
-    translatedNode.removeClass("is-error").text("翻译中...");
+    translatedNode.removeClass("is-error").text("翻译中…");
     try {
         const translated = await options.translation.translate(sourceText, { cacheAlias: options.carNum, scope: options.scope });
         if (options.isActive && !options.isActive()) return;
@@ -26,8 +26,7 @@ export async function renderTranslatedTitle(options) {
     } catch (error) {
         if (options.isActive && !options.isActive()) return;
         if (!title[0]?.isConnected || !translatedNode[0]?.isConnected) return;
-        const message = error instanceof Error ? error.message : String(error);
         /** @type {any} */ (globalThis).clog?.error("翻译失败:", error);
-        translatedNode.addClass("is-error").text(`翻译失败: ${message}`);
+        translatedNode.addClass("is-error").text("翻译失败，请重试");
     }
 }

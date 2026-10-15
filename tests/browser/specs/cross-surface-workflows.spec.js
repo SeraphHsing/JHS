@@ -218,7 +218,7 @@ test("NewVideo dialog close removes its owned preview instance", async ({ contex
   await expect.poll(() => page.evaluate(() => window.imageHoverPreviewObj?.destroyed ?? true)).toBe(true);
 });
 
-test("cloud settings dependency status remains a custom header beside catalog rows", async ({ context, page }, testInfo) => {
+test("cloud settings dependency status belongs only to the 115 sibling section", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-wide", "one deterministic project covers cloud dependency state");
   const dialog = await (async () => {
     await fulfillHostFixtures(context);
@@ -227,13 +227,15 @@ test("cloud settings dependency status remains a custom header beside catalog ro
     await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
     const root = page.locator(".layui-layer");
     await expect(root.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-    await root.locator('.side-menu-item[data-panel="cloud-services-panel"]').click();
+    await root.locator('.side-menu-item[data-panel="cloud-panel"]').click();
     return root;
   })();
   await expect(dialog.locator("#one-one-five-state")).toBeVisible();
   await expect(dialog.locator("#check-one-one-five-login")).toBeVisible();
   await expect(dialog.locator("#cloud-settings-catalog .jhs-setting-row")).toHaveCount(7);
-  await expect(dialog.locator("#cloud-services-panel")).toContainText("115 状态");
+  await expect(dialog.locator('[data-jhs-cloud-group="115"] #one-one-five-state')).toHaveCount(1);
+  await expect(dialog.locator('[data-jhs-cloud-group="123"] #enable123Offline')).toHaveCount(1);
+  await expect(dialog.locator('[data-jhs-cloud-group="general"] #offlineProviderMode')).toHaveCount(1);
 });
 
 test("cloud settings save and reopen retains the canonical provider value", async ({ context, page }, testInfo) => {
@@ -245,7 +247,7 @@ test("cloud settings save and reopen retains the canonical provider value", asyn
     await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
     const root = page.locator(".layui-layer");
     await expect(root.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-    await root.locator('.side-menu-item[data-panel="cloud-services-panel"]').click();
+    await root.locator('.side-menu-item[data-panel="cloud-panel"]').click();
     await expect(root.locator("#cloud-settings-catalog")).toBeVisible();
     return root;
   };
@@ -265,7 +267,7 @@ test("cloud settings reject invalid numeric input by persisting the normalized f
   await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
   const dialog = page.locator(".layui-layer");
   await expect(dialog.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-  await dialog.locator('.side-menu-item[data-panel="cloud-services-panel"]').click();
+  await dialog.locator('.side-menu-item[data-panel="cloud-panel"]').click();
   await dialog.locator("#oneOneFiveCacheMinutes").evaluate((input) => {
     input.value = "";
     input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -282,7 +284,7 @@ test("cloud settings restore the saved value when persistence fails", async ({ c
   await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
   const dialog = page.locator(".layui-layer");
   await expect(dialog.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-  await dialog.locator('.side-menu-item[data-panel="cloud-services-panel"]').click();
+  await dialog.locator('.side-menu-item[data-panel="cloud-panel"]').click();
   const input = dialog.locator("#oneOneFiveConcurrency");
   await expect(input).toHaveValue("4");
   await page.evaluate(() => {
@@ -297,6 +299,6 @@ test("cloud settings restore the saved value when persistence fails", async ({ c
   await page.evaluate(() => window.layer.closeAll());
   await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
   await expect(dialog.locator("#saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
-  await dialog.locator('.side-menu-item[data-panel="cloud-services-panel"]').click();
+  await dialog.locator('.side-menu-item[data-panel="cloud-panel"]').click();
   await expect(dialog.locator("#oneOneFiveConcurrency")).toHaveValue("4");
 });

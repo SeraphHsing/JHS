@@ -71,11 +71,24 @@ function loadHistory(records = createRecords()) {
         remove,
         confirmation,
         show,
-        getCarList
+        getCarList, layer, $, document: dom.window.document, records
     };
 }
 
 describe("History cross-page selection", () => {
+    it("keeps saved checkbox edits local when the editor is canceled", async () => {
+        const { plugin, layer, $, document, patch, records } = loadHistory();
+        await plugin.editRecord(records[0]);
+        const options = layer.open.mock.calls[0][0], editor = $(document.createElement("div")).append(options.content);
+        document.body.append(editor[0]); options.success(editor, 7);
+        expect(editor.find('input[type="checkbox"]')).toHaveLength(4);
+        expect(editor.find('.mini-switch,[role="switch"]')).toHaveLength(0);
+        editor.find("#edit-favorite").prop("checked", true).trigger("change");
+        editor.find("#edit-watched").prop("checked", true).trigger("change");
+        layer.close(7); editor.remove(); await Promise.resolve();
+        expect(patch).not.toHaveBeenCalled();
+        expect(records[0].stateFlags.favorite).toBeFalsy();
+    });
     it("selects all 120 filtered records instead of only the first page", async () => {
         const { plugin } = loadHistory(), page = await plugin.getDataList(1, 50, []);
         expect(page.dataList).toHaveLength(50);
@@ -163,11 +176,14 @@ describe("History cross-page selection", () => {
         await plugin.getDataList(1, 50, []);
         plugin.historySelectionModel.selectAllFiltered();
         plugin.historySelectionModel.excluded.add("ABC-002");
-        patch.mockRejectedValueOnce(new Error("write failed"));
+        const failure = new Error("write failed");
+        patch.mockRejectedValueOnce(failure);
         plugin.bindHistoryActions(root);
         root.find(".multiple-history-favoriteBtn").trigger("click");
 
-        await vi.waitFor((() => expect(show.error).toHaveBeenCalledWith("操作失败，请稍后重试")));
+        await vi.waitFor((() => expect(show.error).toHaveBeenCalledWith("记录更新失败，请重试")));
+        expect(plugin.logger.error).toHaveBeenCalledWith(failure);
+        expect(show.error.mock.calls.flat().join(" ")).not.toContain(failure.message);
         expect(plugin.isHistoryAllFiltered()).toBe(true);
         expect(plugin.historySelectionModel.excluded.has("ABC-002")).toBe(true);
     });
@@ -179,7 +195,7 @@ describe("History cross-page selection", () => {
         plugin.bindHistoryActions(root);
         root.find(".multiple-history-deleteBtn").trigger("click");
 
-        await vi.waitFor((() => expect(show.error).toHaveBeenCalledWith("提供的番号中没有一个存在于列表中。")));
+        await vi.waitFor((() => expect(show.error).toHaveBeenCalledWith("所选记录已不存在")));
         expect(remove.mock.calls[0][0]).toHaveLength(120);
         expect(plugin.isHistoryAllFiltered()).toBe(true);
     });

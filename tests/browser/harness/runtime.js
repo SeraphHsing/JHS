@@ -52,7 +52,7 @@ export async function injectUserscriptRuntime(page, options = {}) {
   markPhase("localforage");
   await page.addScriptTag({ path: join(browserRoot, "node_modules", "tabulator-tables", "dist", "js", "tabulator.min.js") });
   markPhase("tabulator");
-  await page.addStyleTag({ path: join(browserRoot, "node_modules", "tabulator-tables", "dist", "css", "tabulator.min.css") });
+  await page.addStyleTag({ path: join(browserRoot, "node_modules", "tabulator-tables", "dist", "css", "tabulator_semanticui.min.css") });
   markPhase("vendor-style");
   await page.evaluate(async ({ disabledPlugins, settingOverrides, preserveStorage }) => {
     const forage = window.localforage.createInstance({ driver: window.localforage.INDEXEDDB, name: "JAV-JHS", version: 1, storeName: "appData" });
@@ -187,6 +187,16 @@ export async function injectUserscriptRuntime(page, options = {}) {
       msg() {}
     };
   }, { version: browserVersion, nativeTranslation: options.nativeTranslation || "", rankingMovies: options.rankingMovies || null, topMovies: options.topMovies || null });
+  if (options.hostStyles) {
+    const hostCss = new URL(page.url()).hostname.includes("javbus") ? "bootstrap-3.4.1.css" : "bulma-0.9.4.css";
+    await page.addStyleTag({ path: join(browserRoot, "fixtures", "feedback-assets", hostCss) });
+  }
+  if (options.realFeedback) {
+    for (const name of ["toastify-1.12.0", "viewer-1.11.1"]) {
+      await page.addStyleTag({ path: join(browserRoot, "fixtures", "feedback-assets", `${name}.css`) });
+      await page.addScriptTag({ path: join(browserRoot, "fixtures", "feedback-assets", `${name}.js`) });
+    }
+  }
   markPhase("fixture-setup");
   if (typeof options.beforeUserscriptInjection === "function") await options.beforeUserscriptInjection(hostPage);
   if (options.expectRedirect) {

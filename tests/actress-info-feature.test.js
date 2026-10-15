@@ -38,7 +38,7 @@ describe("Actress info Feature", () => {
         await vi.waitFor(() => expect(document.querySelector(".actress-info")).not.toBeNull());
         const block = document.querySelector("#actor-heading + .actress-info");
         expect(block?.classList.contains("panel-block")).toBe(true);
-        expect(block?.querySelector("strong")?.textContent).toBe("演员甲:");
+        expect(block?.querySelector("strong")?.textContent).toBe("演员甲：");
         expect(block?.querySelectorAll(".info-tag")).toHaveLength(3);
         expect(block?.querySelector(".info-tag")?.textContent).toBe("<img src=x> 30");
         expect(block?.querySelector("img")).toBeNull();

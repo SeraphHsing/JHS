@@ -23,6 +23,12 @@ export class JavDbHostAdapter {
             return currentUrl;
         }
     }
+    /** @param {MutationRecord} record */
+    isResourceMutation(record) {
+        const selector = '[data-controller~="magnet-sort"],#magnets-content';
+        if (record.target.nodeType === 1 && /** @type {Element} */ (record.target).closest(selector)) return true;
+        return [...record.addedNodes,...record.removedNodes].some(node => node.nodeType === 1 && (/** @type {Element} */ (node).matches(selector) || /** @type {Element} */ (node).querySelector(selector)));
+    }
     detectRoute() {
         if (this.location.pathname.startsWith("/v/") || this.location.pathname.startsWith("/movies/")) return "detail";
         if (this.location.pathname === "/users/collection_codes") return "owned-detail";
@@ -110,7 +116,12 @@ export class JavDbHostAdapter {
         const publishTime = dateLabel?.parentElement?.querySelector(".value")?.textContent?.trim() ?? "";
         return Object.freeze({ ...ref, actress: namesBefore(".female"), actors: namesBefore(".male"), publishTime });
     }
-    locateListRoot() { return this.document.querySelector(".movie-list"); }
+    locateListRoot() {
+        if (/^\/v\//.test(this.location.pathname)) return null;
+        const root = this.document.querySelector(".movie-list");
+        root?.setAttribute("data-jhs-primary-list", "true");
+        return root;
+    }
     locateListItems() { return [...(this.locateListRoot()?.querySelectorAll(":scope > .item") ?? [])]; }
     getListContainer() { return this.locateListRoot()?.parentElement ?? null; }
     getListSelectors() {
@@ -119,7 +130,7 @@ export class JavDbHostAdapter {
             requestDomItemSelector: ".movie-list .item", nextPageSelector: ".pagination-next",
         });
     }
-    getListLayoutContainer() { return this.document.querySelector("section .container"); }
+    getListLayoutContainer() { return /^\/v\//.test(this.location.pathname) ? null : this.document.querySelector("section .container"); }
     /** @param {string[]} [classes] */
     createOwnedListRoot(classes = []) {
         const root = this.document.createElement("div");
@@ -153,15 +164,67 @@ export class JavDbHostAdapter {
         tabs.after(element);
         return true;
     }
-    locateNativeGallery() { return this.document.querySelector(".tile-images, .preview-images"); }
+    locateNativeGallery() { return this.getDetailGalleryBoundaries()[0]?.root ?? null; }
+    getDetailImageSequence() {
+        return this.getDetailGalleryBoundaries().flatMap(boundary => boundary.items).flatMap(trigger => {
+            if (trigger.closest(".screen-container")) return [];
+            const image = trigger.querySelector("img");
+            if (!image || trigger.matches(".preview-video-container") || trigger.getAttribute("data-action")?.includes("loadPreview") || trigger.querySelector("video") || trigger.getAttribute("href")?.startsWith("#")) return [];
+            const href = trigger.getAttribute("href");
+            if (!href) return [];
+            let url;
+            try { url = new URL(href || image.currentSrc || image.src, this.document.baseURI); } catch { return []; }
+            if (url.origin === this.location.origin && /^\/v\//.test(url.pathname)) return [];
+            return ["https:","http:"].includes(url.protocol) ? [{ trigger, image, url:url.href }] : [];
+        });
+    }
+    getNativeGalleryRegion() { return this.locateDetailRoot()?.querySelector('.columns.preview, .preview-images') ?? null; }
+    /** @param {Element} element */
+    isDetailMediaBoundary(element) {
+        const selector = '.tile-images,.preview-images,.movie-list,[data-jhs-native-gallery],[data-jhs-native-recommendations]';
+        return element.matches(selector) || !!element.querySelector(selector);
+    }
+    /** Native media boundaries preserve the site's nodes and delegated actions. */
+    getDetailGalleryBoundaries() {
+        const root = this.locateDetailRoot();
+        if (!root) return [];
+        return [...root.querySelectorAll(".tile-images,.preview-images")].filter(gallery => !gallery.querySelector(".tile-images,.preview-images") && !this.isDetailRecommendationList(gallery)).map(gallery => ({
+            root: gallery, region: this.detailMediaRegion(root, gallery),
+            items: [...gallery.querySelectorAll(".tile-item,a,button")].filter(item => item.closest(".screen-container") ? item.matches(".screen-container") : !!item.querySelector("img") && !item.querySelector("a,button,.tile-item")),
+        }));
+    }
+    getDetailRecommendationBoundaries() {
+        const root = this.locateDetailRoot();
+        if (!root || this.detectRoute() !== "detail") return [];
+        return [...this.document.querySelectorAll(".movie-list,.tile-images")].filter(list => this.isDetailRecommendationList(list) && !list.closest("#magnets-content,[data-jhs-slot],.layui-layer") && !list.hasAttribute("data-jhs-primary-list")).map(list => {
+            const panel = list.closest('.message.video-panel') || list.closest('section');
+            return { root:list, region:this.detailMediaRegion(root,list), panel, heading:panel?.querySelector('.message-header') || panel?.querySelector(':scope > h3') };
+        });
+    }
+    /** Movie tiles share the gallery class but carry navigation and movie metadata. @param {Element} list */
+    isDetailRecommendationList(list) {
+        return list.matches(".movie-list,.tile-small") || !!list.querySelector('a.tile-item[href] .video-number');
+    }
+    /** Filter host insertions for the feature-owned title translator. @param {Element} element */
+    isDetailRecommendationMutation(element) {
+        const selector = '.tile-small,.movie-list,.tile-item,.item,.video-number,.video-title';
+        return element.matches(selector) || !!element.querySelector(selector);
+    }
+    /** @param {Element} root @param {Element} node */
+    detailMediaRegion(root,node) {
+        if (!root.contains(node)) return node.parentElement ?? node;
+        let region = node;
+        while (region.parentElement && region.parentElement !== root) region = region.parentElement;
+        return region === node ? root : region;
+    }
     locateNativeMagnets() { return this.document.querySelector("#magnets-content"); }
     getDetailResourceBoundary() {
-        const resourceRoot = this.locateNativeMagnets(), controller = resourceRoot?.closest('[data-controller="magnet-sort"]'), hostRoot = this.locateDetailRoot();
+        const resourceRoot = this.locateNativeMagnets(), controller = resourceRoot?.closest('[data-controller~="magnet-sort"]') || resourceRoot?.closest(".video-panel") || resourceRoot?.parentElement, hostRoot = this.locateDetailRoot();
         if (!hostRoot || !controller || !resourceRoot) return null;
         const resourceRegion = [...hostRoot.children].find((child) => child === controller || child.contains(controller)) || controller;
         return Object.freeze({
             site: "javdb", hostRoot, controller, observeRoot: controller, resourceRoot, resourceRegion,
-            rows: () => [...resourceRoot.children].filter((row) => row.matches(".item")),
+            rows: () => [...resourceRoot.querySelectorAll(".item")].filter(row => row.querySelector(".magnet-name") && row.querySelector(".buttons")),
             sortSelect: controller.querySelector('select[data-action*="magnet-sort#sort"]'),
             prepareLayout() {
                 resourceRoot.setAttribute("data-jhs-magnets", "true");
@@ -170,9 +233,9 @@ export class JavDbHostAdapter {
                 surface.setAttribute("data-jhs-resource-surface", "true");
                 const body = resourceRoot.closest(".message-body");
                 if (body && surface.contains(body)) body.setAttribute("data-jhs-resource-body", "true");
-                for (const row of resourceRoot.children) {
+                for (const row of resourceRoot.querySelectorAll(".item")) {
                     if (!row.matches(".item")) continue;
-                    const info = row.querySelector(":scope > .magnet-name"), date = row.querySelector(":scope > .date"), actions = row.querySelector(":scope > .buttons");
+                    const info = row.querySelector(".magnet-name"), date = row.querySelector(".date"), actions = row.querySelector(".buttons");
                     if (!info || !actions) continue;
                     row.setAttribute("data-jhs-magnet-row", "true");
                     info.setAttribute("data-jhs-magnet-part", "info");
@@ -181,7 +244,7 @@ export class JavDbHostAdapter {
                 }
             },
             getResource(/** @type {Element} */ row) { return row.querySelector('.copy-to-clipboard[data-clipboard-text^="magnet:"]')?.getAttribute("data-clipboard-text") || row.querySelector('.magnet-name a[href^="magnet:"]')?.getAttribute("href") || ""; },
-            getActionTarget: (/** @type {Element} */ row) => row.querySelector(":scope > .buttons"),
+            getActionTarget: (/** @type {Element} */ row) => row.querySelector(".buttons"),
             actionTargetRequiresWrapper: () => false,
             getTitleTarget: (/** @type {Element} */ row) => row.querySelector(".name"), hasSubtitleTag: () => false,
         });

@@ -40,7 +40,7 @@ export class DetailPageActionsController {
             ui: Object.freeze({
                 document: this.document,
                 jquery: (/** @type {any} */ value) => ui.jquery(value),
-                confirm: (/** @type {MouseEvent | null} */ event, /** @type {string} */ message, /** @type {() => any} */ accept) => ui.confirm(event, message, accept),
+                confirm: (/** @type {MouseEvent | null} */ event, /** @type {string} */ message, /** @type {() => any} */ accept, /** @type {{confirmText?: string, cancelText?: string}} */ options) => ui.confirm(event, message, accept, options),
                 closePage: (/** @type {any} */ options) => ui.closePage(options),
                 reportError: (/** @type {string} */ message) => this.notifications.error(message),
                 /** @param {...unknown} args */
@@ -73,7 +73,7 @@ export class DetailPageActionsController {
     /** @param {string} carNum */
     openMagnetDialog(carNum) {
         const magnetHub = this.featureMagnetHubAdapter;
-        if (!magnetHub) return void this.notifications.info("磁力搜索功能已禁用");
+        if (!magnetHub) return void this.notifications.info("磁力搜索功能已关闭");
         if (this.magnetDialog?.open) return;
         /** @type {{open: boolean, index: number|null, content: any}} */
         const active = { open: true, index: null, content: null };
@@ -81,7 +81,7 @@ export class DetailPageActionsController {
         const load = async () => {
             const content = active.content;
             if (!content?.length) return;
-            content.empty().text("正在加载磁力来源…");
+            content.attr("aria-busy", "true").empty().text("加载中…");
             try {
                 const hub = await magnetHub.createMagnetHub(carNum);
                 if (!active.open || this.scope.disposed || this.featureMagnetHubAdapter !== magnetHub || !content[0]?.isConnected) return;
@@ -90,23 +90,25 @@ export class DetailPageActionsController {
                 if (!active.open || this.scope.disposed || !content[0]?.isConnected) return;
                 this.diagnostics.recordError({ source: "detail-page-actions", message: "磁力来源初始化失败", error });
                 content.empty().append(this.jquery('<p class="magnet-error"></p>').text("磁力来源加载失败"), this.jquery('<button type="button" class="jhs-btn jhs-btn--secondary">重试</button>').on("click", () => void load()));
+            } finally {
+                content.attr("aria-busy", "false");
             }
         };
         try {
             active.index = this.dialog.open({
-                type: 1, title: `磁力搜索 ${carNum}`, content: '<div class="jhs-magnet-dialog" role="status" aria-live="polite">正在加载磁力来源…</div>',
+                type: 1, title: `磁力搜索 ${carNum}`, content: '<div class="jhs-magnet-dialog" role="status" aria-live="polite">加载中…</div>',
                 area: this.ui.getResponsiveArea(["60%", "80%"]), scrollbar: false,
                 success: (/** @type {any} */ element) => {
                     active.content = this.jquery(element).find(".jhs-magnet-dialog");
                     void load();
                 },
-                end: () => { active.open = false; if (this.magnetDialog === active) this.magnetDialog = null; },
+                end: () => { active.open = false; active.content?.attr("aria-busy", "false"); if (this.magnetDialog === active) this.magnetDialog = null; },
             });
         } catch (error) {
             active.open = false;
             this.magnetDialog = null;
-            this.diagnostics.recordError({ source: "detail-page-actions", message: "磁力搜索弹窗打开失败", error });
-            this.notifications.error("磁力搜索弹窗打开失败");
+            this.diagnostics.recordError({ source: "detail-page-actions", message: "磁力搜索打开失败", error });
+            this.notifications.error("磁力搜索打开失败");
         }
     }
 
@@ -140,8 +142,8 @@ export class DetailPageActionsController {
                 <div class="jhs-layout-1e90930a">
                     <button type="button" id="enable-magnets-filter" class="jhs-btn jhs-btn--secondary jhs-layout-5f3e3549"><span id="magnets-span">关闭磁力过滤</span></button>
                     <button type="button" id="magnetSearchBtn" class="jhs-btn jhs-btn--accent"><span>磁力搜索</span></button>
-                    <button type="button" id="xunLeiSubtitleBtn" class="jhs-btn jhs-btn--accent"><span>字幕 (迅雷)</span></button>
-                    <button type="button" id="search-subtitle-btn" class="jhs-btn jhs-btn--accent jhs-layout-f43f0d6d"><span>字幕 (SubTitleCat)</span></button>
+                    <button type="button" id="xunLeiSubtitleBtn" class="jhs-btn jhs-btn--secondary"><span>字幕（迅雷）</span></button>
+                    <button type="button" id="search-subtitle-btn" class="jhs-btn jhs-btn--secondary jhs-layout-f43f0d6d"><span>字幕（SubtitleCat）</span></button>
                 </div>
             </div>
         `);
@@ -211,7 +213,7 @@ export class DetailPageActionsController {
         try {
             loader = this.ui.loading();
             const results = await this.subtitle.search("xunlei", { carNum }, { scope: this.scope });
-            if (!results?.length) return void this.notifications.error("迅雷中找不到相关字幕!");
+            if (!results?.length) return void this.notifications.error("未找到该番号的迅雷字幕");
             this.dialog.open({
                 type: 1, title: "迅雷字幕", content: '<div class="jhs-layout-8ddc7c91"><div id="xunlei-table-container" class="jhs-layout-583c2485"></div></div>',
                 scrollbar: false, area: this.ui.getResponsiveArea(["60%", "70%"]), anim: -1,
@@ -235,7 +237,7 @@ export class DetailPageActionsController {
                                         this.ui.download(data, filename);
                                     });
                                 });
-                                return '<button type="button" class="jhs-btn jhs-btn--secondary subtitle-preview-btn">预览</button> <button type="button" class="jhs-btn jhs-btn--primary subtitle-download-btn">下载</button>';
+                                return '<button type="button" class="jhs-btn jhs-btn--secondary subtitle-preview-btn">预览</button> <button type="button" class="jhs-btn jhs-btn--secondary subtitle-download-btn">下载</button>';
                             } },
                         ],
                     });
@@ -244,7 +246,7 @@ export class DetailPageActionsController {
             });
         } catch (error) {
             this.diagnostics.recordError({ source: "detail-page-actions", contributionId: "detail.page-state-actions", message: `迅雷字幕搜索失败: ${error instanceof Error ? error.message : String(error)}` });
-            this.notifications.error(error instanceof Error ? error.message : String(error));
+            this.notifications.error("字幕搜索失败，请重试");
         } finally { loader?.close?.(); }
     }
 
@@ -252,10 +254,10 @@ export class DetailPageActionsController {
     async previewSubtitle(subtitle, filename) {
         if (!subtitle?.url) return void this.diagnostics.recordError({ source: "detail-page-actions", message: "字幕预览未提供文件 URL" });
         const extension = String(subtitle.extension || "").toLowerCase();
-        if (!["ass", "srt"].includes(extension)) return void this.notifications.error("仅支持预览ASS和SRT字幕文件");
+        if (!["ass", "srt"].includes(extension)) return void this.notifications.error("仅支持 ASS 和 SRT 字幕");
         try {
             const data = await this.subtitle.download("xunlei", subtitle, { scope: this.scope });
-            const title = extension === "ass" ? `ASS字幕预览 - ${filename}` : `SRT字幕预览 - ${filename}`;
+            const title = extension === "ass" ? `ASS 字幕预览：${filename}` : `SRT 字幕预览：${filename}`;
             const lines = data.split("\n"), width = String(lines.length).length;
             const escaped = lines.map((/** @type {string} */ line, /** @type {number} */ index) => `<span class="jhs-code-line-number">${String(index + 1).padStart(width, " ")}. </span>${escapeHtml(line)}`).join("\n");
             this.dialog.open({
@@ -264,7 +266,7 @@ export class DetailPageActionsController {
                 btn1: () => { this.ui.download(data, filename); return false; },
             });
         } catch (error) {
-            this.notifications.error(`预览失败: ${error instanceof Error ? error.message : String(error)}`);
+            this.notifications.error("字幕预览失败，请重试");
             this.diagnostics.recordError({ source: "detail-page-actions", message: `字幕预览失败: ${error instanceof Error ? error.message : String(error)}` });
         }
     }

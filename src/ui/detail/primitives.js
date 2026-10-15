@@ -5,19 +5,19 @@
  * 数据 adapter 可以不同，视觉与交互组件不允许各写一套。
  */
 
-/** @param {string} message @param {{ retry?: (() => void) | null, tone?: "neutral" | "error", extraClass?: string }} [options] */
-export function createPanelState(message, { retry = null, tone = "neutral", extraClass = "" } = {}) {
-    const jq = /** @type {any} */ (globalThis).$;
-    const state = jq('<div class="jhs-panel-state"></div>').text(message);
+/** @param {string} message @param {{ retry?: (() => void) | null, tone?: "neutral" | "error", extraClass?: string, jquery?: (value: any) => any }} [options] */
+export function createPanelState(message, { retry = null, tone = "neutral", extraClass = "", jquery } = {}) {
+    const jq = jquery ?? /** @type {any} */ (globalThis).$;
+    const state = jq('<div class="jhs-panel-state"></div>').attr("role", tone === "error" ? "alert" : "status").text(message);
     if (extraClass) state.addClass(extraClass);
     if ("error" === tone) state.addClass("is-error");
     if (retry) state.append(" ", jq('<button type="button" class="jhs-btn jhs-btn--secondary jhs-btn--sm">重试</button>').on("click", retry));
     return state;
 }
 
-/** @param {string} [message] */
-export function createPanelLoading(message = "正在加载…") {
-    return createPanelState(message);
+/** @param {string} [message] @param {(value: any) => any} [jquery] */
+export function createPanelLoading(message = "加载中…", jquery) {
+    return createPanelState(message, { jquery });
 }
 
 /** @param {string} [message] */

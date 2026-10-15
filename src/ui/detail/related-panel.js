@@ -2,6 +2,8 @@
 
 import { LifecycleScope } from "../../core/lifecycle-scope.js";
 import { createLatestSettingWriter } from "../settings/setting-binding-controller.js";
+import { getIcon } from "../../core/icons.js";
+import { createPanelLoading } from "./primitives.js";
 
 export class RelatedPanel {
     /** @param {{related: any, settings: any, scope: () => Promise<any>, jquery?: (value: any) => any, formatDate?: (value: any) => string, document?: Document, notifications?: any, diagnostics?: any}} dependencies */
@@ -23,7 +25,7 @@ export class RelatedPanel {
         if (!isActive() || !target?.length) return jq();
         const existing = target.children('[data-jhs-panel="related"]').filter((/** @type {number} */ _index, /** @type {Element} */ element) => jq(element).attr("data-jhs-movie-id") === String(movieId)).first();
         if (existing.length) return existing;
-        const panel = jq('<section class="jhs-related-panel" data-jhs-panel="related"></section>').attr("data-jhs-movie-id", String(movieId));
+        const panel = jq('<section class="jhs-related-panel jhs-ui" data-jhs-panel="related"></section>').attr("data-jhs-movie-id", String(movieId));
         const header = jq('<header class="jhs-panel-header"><h3>相关清单</h3></header>');
         const toggle = jq('<button type="button" class="jhs-btn jhs-btn--secondary jhs-panel-toggle jhs-related-toggle"><span class="toggle-text"></span><span class="toggle-icon" aria-hidden="true"></span></button>');
         const parentScope = await this.scope(), panelScope = new LifecycleScope(`related:${movieId}`);
@@ -42,7 +44,7 @@ export class RelatedPanel {
             const next = value === "yes";
             if (state.enabled !== next) {
                 state.enabled = next; state.generation++;
-                if (!next) { state.requestScope?.dispose(); state.loading = false; }
+                if (!next) { state.requestScope?.dispose(); state.loading = false; panel.attr("aria-busy", "false"); }
             }
             this.updateToggle(toggle, next);
             panel.find(".jhs-related-container, .jhs-related-footer").toggle(next);
@@ -62,7 +64,7 @@ export class RelatedPanel {
             event.preventDefault(); event.stopPropagation();
             void writeExpanded(state.enabled ? "no" : "yes");
         });
-        panelScope.addCleanup(() => { state.requestScope?.dispose(); toggle.off("click"); panel.find("button").off("click"); });
+        panelScope.addCleanup(() => { state.requestScope?.dispose(); panel.attr("aria-busy", "false"); toggle.off("click"); panel.find("button").off("click"); });
         const initialLoad = applyExpanded(enabled ? "yes" : "no");
         if (options.awaitInitialLoad !== false) await initialLoad;
         return panel;
@@ -72,15 +74,16 @@ export class RelatedPanel {
     updateToggle(toggle, expanded) {
         toggle.attr("aria-expanded", String(expanded));
         toggle.find(".toggle-text").text(expanded ? "折叠" : "展开");
-        toggle.find(".toggle-icon").text(expanded ? "▲" : "▼");
+        const icon = toggle.find(".toggle-icon").empty();
+        icon[0]?.insertAdjacentHTML("beforeend", getIcon(expanded ? "chevron-up" : "chevron-down"));
     }
 
     /** @param {any} state */
     async fetch(state) {
         if (state.loading || !state.enabled || !state.isActive()) return;
-        state.loading = true;
+        state.loading = true; state.panel.attr("aria-busy", "true");
         const container = state.panel.find(".jhs-related-container"), footer = state.panel.find(".jhs-related-footer");
-        container.empty().append(this.jquery("<div></div>").addClass("jhs-panel-state").text("获取清单中..."));
+        container.empty().append(createPanelLoading(undefined, this.jquery));
         footer.empty();
         const generation = state.generation, scope = new LifecycleScope(`related:${state.movieId}:page:1`), release = state.panelScope.addCleanup(() => scope.dispose());
         state.requestScope = scope;
@@ -88,7 +91,7 @@ export class RelatedPanel {
             const related = await this.related.list({ movieId: state.movieId }, { page: 1, limit: 20, scope });
             if (!state.isActive() || scope.signal.aborted || generation !== state.generation || !state.enabled) return;
             state.loading = false; state.loaded = true; container.empty();
-            if (!related.length) return void container.append(this.jquery("<div></div>").addClass("jhs-panel-state").text("无清单"));
+            if (!related.length) return void container.append(this.jquery("<div></div>").addClass("jhs-panel-state").text("暂无清单"));
             this.display(state, related, container);
             if (related.length === 20) this.bindLoadMore(state, container, footer);
             else footer.append(this.jquery("<div></div>").addClass("jhs-panel-end").text("已加载全部清单"));
@@ -98,7 +101,7 @@ export class RelatedPanel {
             this.diagnostics?.recordError?.({ source: "detail-related-panel", message: error instanceof Error ? error.message : String(error) });
             if (!this.diagnostics) /** @type {any} */ (globalThis).clog?.error("获取清单失败:", error);
             this.renderRetry(container, () => void this.fetch(state));
-        } finally { release(); if (state.requestScope === scope) state.requestScope = null; }
+        } finally { release(); if (generation === state.generation) { state.loading = false; state.panel.attr("aria-busy", "false"); } if (state.requestScope === scope) state.requestScope = null; }
     }
 
     /** @param {any} container @param {() => void} retry */
@@ -114,8 +117,8 @@ export class RelatedPanel {
         button.on("click", async () => {
             if (!state.enabled || !state.isActive() || state.loading) return;
             const nextPage = state.page + 1, generation = state.generation, scope = new LifecycleScope(`related:${state.movieId}:page:${nextPage}`), release = state.panelScope.addCleanup(() => scope.dispose());
-            state.loading = true; state.requestScope = scope;
-            button.text("加载中...").prop("disabled", true);
+            state.loading = true; state.requestScope = scope; state.panel.attr("aria-busy", "true");
+            button.text("加载中…").prop("disabled", true).attr("aria-busy", "true");
             try {
                 const related = await this.related.list({ movieId: state.movieId }, { page: nextPage, limit: 20, scope });
                 if (!state.isActive() || scope.signal.aborted || generation !== state.generation || !state.enabled) return;
@@ -126,7 +129,7 @@ export class RelatedPanel {
                 this.diagnostics?.recordError?.({ source: "detail-related-panel", message: error instanceof Error ? error.message : String(error) });
                 if (!this.diagnostics) /** @type {any} */ (globalThis).clog?.error("加载更多清单失败:", error);
                 button.text("加载失败，请重试").prop("disabled", false);
-            } finally { release(); if (generation === state.generation) state.loading = false; if (state.requestScope === scope) state.requestScope = null; }
+            } finally { release(); if (generation === state.generation) { state.loading = false; state.panel.attr("aria-busy", "false"); } button.attr("aria-busy", "false"); if (state.requestScope === scope) state.requestScope = null; }
         });
     }
 
@@ -134,11 +137,11 @@ export class RelatedPanel {
     display(state, related, container) {
         const jq = this.jquery;
         related.forEach((item) => {
-            const title = jq("<a></a>").addClass("jhs-related-title").attr({ href: `/lists/${encodeURIComponent(item.id)}`, target: "_blank", rel: "noopener noreferrer" }).text(item.name || "未命名清单");
+            const title = jq("<a></a>").addClass("jhs-related-title jhs-link").attr({ href: `/lists/${encodeURIComponent(item.id)}`, target: "_blank", rel: "noopener noreferrer" }).text(item.name || "未命名清单");
             const heading = jq('<div class="jhs-related-heading"></div>').append(jq("<span></span>").addClass("jhs-related-index").text(`#${state.floorIndex++}`), title);
             const meta = jq('<div class="jhs-related-meta"></div>');
             const formatted = item.createdAt ? this.formatDate(item.createdAt) : "未知";
-            meta.append(jq("<span></span>").text(`视频：${Number(item.movieCount) || 0}`), jq("<span></span>").text(`收藏：${Number(item.collectionCount) || 0}`), jq("<span></span>").text(`查看：${Number(item.viewCount) || 0}`), jq('<time class="jhs-related-time"></time>').text(`创建时间：${formatted}`));
+            meta.append(jq("<span></span>").text(`影片：${Number(item.movieCount) || 0}`), jq("<span></span>").text(`收藏：${Number(item.collectionCount) || 0}`), jq("<span></span>").text(`查看：${Number(item.viewCount) || 0}`), jq('<time class="jhs-related-time"></time>').text(`创建时间：${formatted}`));
             container.append(jq('<article class="jhs-related-item"></article>').append(heading, meta));
         });
     }

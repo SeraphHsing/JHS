@@ -103,6 +103,10 @@ test("unopened native preview must not show a second detail toolbar in the list 
 test("native preview fast-forward must seek the currently playing native video", async ({ page, context }) => {
   await boot(page, context); await nativePlayer(page);
   await page.evaluate(() => window.auditPlugin.handleVideo());
+  await expect(page.locator("#speed-btn")).toHaveText("快进 10 秒");
+  await page.locator("#speed-btn").click({button:"right"});
+  await expect(page.locator("#video-filterBtn")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#speed-btn")).toBeVisible();
   await page.locator("#speed-btn").click();
   expect(await page.locator("#preview-video").evaluate(video => video.currentTime)).toBe(17);
 });

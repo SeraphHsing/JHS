@@ -1,3 +1,5 @@
+import { OwnedPopover } from "../src/core/owned-popover.js";
+import { renderTaskStatus } from "../src/core/task-status-view.js";
 import { readTestFile } from "./helpers/read-test-file.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -7,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NewVideoWorkspaceController } from "../src/features/discovery/new-video-workspace-controller.js";
 import { FEATURE_ICONS } from "../src/core/feature-icons.js";
+import { getIcon } from "../src/core/icons.js";
 
 const repoRoot = join(import.meta.dirname, "..");
 
@@ -43,7 +46,7 @@ function createHarness() {
     dom.window.ImageHoverPreview = ImageHoverPreview;
     const renderStateView = (container, options) => (container.empty().append($("<div></div>").text(options.title || "")), container);
     const context = vm.createContext({
-        console, Date, URL, Object, Array, Map, Set, Promise, Number, String, Math, FEATURE_ICONS,
+        OwnedPopover, renderTaskStatus, console, Date, URL, Object, Array, Map, Set, Promise, Number, String, Math, FEATURE_ICONS, getIcon,
         window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage,
         $, BasePlugin, ImageHoverPreview, storageManager, stateService, renderStateView,
         JHS_Z_INDEX: { dialogHoverPreview: 999999992 },
@@ -56,7 +59,7 @@ function createHarness() {
         mapLimit: async (items, limit, worker) => Promise.all(items.map(worker)),
         escapeHtml: value => String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]),
         utils: { genericSort: items => [...items], htmlTo$dom: html => $(new JSDOM(html).window.document), q: vi.fn() },
-        gmHttp: { get: vi.fn() }, JhsSelect: { setValue: vi.fn() },
+        gmHttp: { get: vi.fn() }, JhsSelect: { setValue: vi.fn(), enhance: vi.fn() },
         show: { info: vi.fn(), ok: vi.fn(), error: vi.fn() }, clog: { error: vi.fn(), warn: vi.fn(), log: vi.fn(), debug: vi.fn() },
         jhsEventBus: { on: vi.fn() }, setTimeout, clearTimeout, fetch: vi.fn(), indexedDB: {}, loading: vi.fn(),
         shouldSkipStopped: () => false,
@@ -65,7 +68,7 @@ function createHarness() {
     context.globalThis = context;
     const source = readTestFile(join(repoRoot, "src/plugins/new-video/new-video.js"), "utf8"), start = source.indexOf("class NewVideoWorkspaceService");
     vm.runInContext(`${source.slice(start)};globalThis.TestPlugin=NewVideoWorkspaceService`, context);
-    const plugin = new context.TestPlugin({ runtimeServices: { ...runtimeServices, state: stateService, scope: () => Promise.resolve({ assertActive() {}, disposed: false }) }, resolveDependency: name => beans[name], jquery: $, legacyStorage: storageManager, utilities: context.utils, notifications: context.show, logger: context.clog, events: context.jhsEventBus, createImageHoverPreview: config => new dom.window.ImageHoverPreview(config), document: dom.window.document, window: dom.window });
+    const plugin = new context.TestPlugin({ runtimeServices: { ...runtimeServices, settings:{snapshot:()=>({})}, state: stateService, scope: () => Promise.resolve({ assertActive() {}, disposed: false }) }, resolveDependency: name => beans[name], jquery: $, legacyStorage: storageManager, utilities: context.utils, notifications: context.show, logger: context.clog, events: context.jhsEventBus, createImageHoverPreview: config => new dom.window.ImageHoverPreview(config), document: dom.window.document, window: dom.window });
     plugin.nvWorkspaceMounted = true, plugin._viewMode = "list";
     plugin.featureNewVideoWorkspaceController = new NewVideoWorkspaceController({
         state: stateService,
@@ -78,6 +81,127 @@ function createHarness() {
 afterEach(() => vi.useRealTimers());
 
 describe("new video workspace snapshot", () => {
+    it("owns Escape and settings listeners before loading and rejects an old dialog completion", async () => {
+        const { plugin, $ } = createHarness(), listeners = new Set(), completions = [];
+        plugin.runtimeServices.settings = {
+            addEventListener: vi.fn((_name, listener) => listeners.add(listener)),
+            removeEventListener: vi.fn((_name, listener) => listeners.delete(listener)),
+        };
+        plugin.runtimeServices.dialog = { open: vi.fn(() => plugin.runtimeServices.dialog.open.mock.calls.length) };
+        plugin.utils.getDialogArea = () => ["600px", "500px"];
+        plugin.utils.setupEscClose = vi.fn();
+        plugin.utils.releaseEscClose = vi.fn();
+        plugin.getTaskButtonTips = vi.fn(async () => ({ favorite: "", newVideo: "" }));
+        plugin.bindClick = plugin.applyViewMode = plugin.renderTaskStatuses = vi.fn();
+        plugin.reloadNewVideoWorkspaceData = vi.fn(() => new Promise(resolve => completions.push(resolve)));
+
+        await plugin.openDialog();
+        const first = plugin.runtimeServices.dialog.open.mock.calls[0][0], firstRoot = $("<div></div>").append(first.content).appendTo("body"), firstLoading = first.success(firstRoot, 1);
+        expect(plugin.utils.setupEscClose).toHaveBeenCalledWith(1);
+        expect(listeners.size).toBe(1);
+        first.end(); firstRoot.remove();
+        await plugin.openDialog();
+        const second = plugin.runtimeServices.dialog.open.mock.calls[1][0], secondRoot = $("<div></div>").append(second.content).appendTo("body"), secondLoading = second.success(secondRoot, 2);
+        completions[0](); await firstLoading;
+        completions[1](); await secondLoading;
+        first.end();
+        expect(plugin.nvWorkspaceRoot).toBe(secondRoot);
+        expect(listeners.size).toBe(1);
+        second.end(); secondRoot.remove();
+        expect(listeners.size).toBe(0);
+        expect(plugin.runtimeServices.settings.addEventListener).toHaveBeenCalledTimes(2);
+        expect(plugin.utils.setupEscClose).toHaveBeenCalledTimes(2);
+        expect(plugin.utils.releaseEscClose).toHaveBeenCalledTimes(2);
+    });
+
+    it("merges pending opens and never opens after disposal during tip loading", async () => {
+        const { plugin } = createHarness();
+        let finishTips;
+        plugin.runtimeServices.dialog = { open: vi.fn() };
+        plugin.getTaskButtonTips = vi.fn(() => new Promise(resolve => finishTips = resolve));
+        const first = plugin.openDialog(), second = plugin.openDialog();
+        await vi.waitFor(() => expect(plugin.getTaskButtonTips).toHaveBeenCalledOnce());
+        plugin.dispose();
+        finishTips({ favorite: "", newVideo: "" });
+        await Promise.all([first, second]);
+        expect(plugin.runtimeServices.dialog.open).not.toHaveBeenCalled();
+    });
+
+    it("does not let a disposed activation open after a replacement activation", async () => {
+        const { plugin } = createHarness(), tips = [];
+        plugin.runtimeServices.dialog = { open: vi.fn(() => 9) };
+        plugin.utils.getDialogArea = () => ["600px", "500px"];
+        plugin.getTaskButtonTips = vi.fn(() => new Promise(resolve => tips.push(resolve)));
+        const first = plugin.openDialog();
+        await vi.waitFor(() => expect(tips).toHaveLength(1));
+        plugin.dispose(); plugin.prepareFeatureActivation();
+        const second = plugin.openDialog();
+        await vi.waitFor(() => expect(tips).toHaveLength(2));
+        tips[0]({ favorite: "", newVideo: "" }); await first;
+        expect(plugin.runtimeServices.dialog.open).not.toHaveBeenCalled();
+        tips[1]({ favorite: "", newVideo: "" }); await second;
+        expect(plugin.runtimeServices.dialog.open).toHaveBeenCalledOnce();
+        expect(plugin.nvDialogId).toBe(9);
+    });
+
+    it("allows another open after a failed prerequisite", async () => {
+        const { plugin } = createHarness();
+        plugin.runtimeServices.dialog = { open: vi.fn(() => 9) };
+        plugin.utils.getDialogArea = () => ["600px", "500px"];
+        plugin.getTaskButtonTips = vi.fn().mockRejectedValueOnce(new Error("tips unavailable")).mockResolvedValueOnce({ favorite: "", newVideo: "" });
+        await expect(plugin.openDialog()).rejects.toThrow("tips unavailable");
+        await plugin.openDialog();
+        expect(plugin.runtimeServices.dialog.open).toHaveBeenCalledOnce();
+    });
+
+    it("renders readable card tooltips while keeping actor text escaped", async () => {
+        const { plugin, $, actresses } = createHarness();
+        const name = 'Alice"><img id="jhs-tooltip-injection" src=x>';
+        actresses[0].name = name;
+        actresses[0].newVideoList[0].voteCount = 12;
+        actresses[0].newVideoList[0].coverUrl = "https://img.example.test/thumbs/test.jpg";
+        await plugin.reloadNewVideoWorkspaceData();
+        const card = $('.nv-card[data-car="ABC-001"]');
+        expect(card.attr("title")).toContain(`番号：ABC-001\n演员：${name}\n发行：2026-08-01`);
+        expect(card.attr("title")).not.toContain("\\n");
+        expect(card.find("#jhs-tooltip-injection")).toHaveLength(0);
+        expect(card.find(".nv-card__rating").text()).toBe("12 人评价");
+        expect(card.find(".nv-cover-img").attr("data-full")).toBe("https://img.example.test/covers/test.jpg");
+        const image = card.find(".nv-cover-img")[0];
+        vm.runInNewContext(`(function () { ${image.getAttribute("onerror")} }).call(image)`, { image });
+        expect(card.find(".nv-cover-img").hasClass("jhs-is-hidden")).toBe(true);
+        expect(card.find('[data-jhs-role="cover-fallback"]').hasClass("jhs-is-hidden")).toBe(false);
+        expect(card.find(".nv-card__rating").text()).toBe("12 人评价");
+        plugin.nvSelected.add("ABC-001");
+        plugin.renderBatchBar();
+        expect($("#batchMarkWatched").text()).toBe("已观看");
+        expect($("#batchRemoveFromNewVideo").text()).toBe("从新作品列表移除");
+        expect($(".jhs-new-video-batch__more summary [data-jhs-icon=chevron-down]")).toHaveLength(1);
+    });
+
+    it("settles missing or failed cover hydration and permits a later successful retry", async () => {
+        for (const fails of [false, true]) {
+            const { plugin, $ } = createHarness(), failure = new Error("synthetic cover request failure");
+            const item = { carNum: "ABC-001", actressName: "Alice", actresses: ["Alice"], starId: "alice", flags: {}, decisionState: "pending" };
+            plugin.nvFlatListCache = [item];
+            const hydrate = plugin.hydrateVisibleCovers;
+            plugin.hydrateVisibleCovers = vi.fn(async () => {});
+            plugin.nvRenderPage();
+            expect($(".nv-placeholder").text()).toBe("加载中…");
+            plugin.getActorCoverRequest = fails ? vi.fn().mockRejectedValueOnce(failure) : vi.fn().mockResolvedValueOnce(new Map());
+            await hydrate.call(plugin, [item], plugin.nvRenderGeneration);
+            expect($(".nv-placeholder").text()).toBe("暂无封面");
+            expect($(".nv-placeholder").hasClass("jhs-is-hidden")).toBe(false);
+            expect(plugin.nvCoverCache.size).toBe(0);
+            if (fails) expect(plugin.logger.warn).toHaveBeenCalledWith("获取演员封面失败: alice", failure);
+            plugin.getActorCoverRequest.mockResolvedValueOnce(new Map([["ABC-001", { coverUrl: "https://img.example/cover.jpg" }]]));
+            await hydrate.call(plugin, [item], plugin.nvRenderGeneration);
+            expect(plugin.getActorCoverRequest).toHaveBeenCalledTimes(2);
+            expect($(".nv-cover-img").attr("src")).toBe("https://img.example/cover.jpg");
+            expect($('[data-jhs-role="cover-fallback"]').hasClass("jhs-is-hidden")).toBe(true);
+        }
+    });
+
     it("counts existing records with cleared flags as pending, matching the workspace", async () => {
         const {plugin,storageManager}=createHarness();
         const records=new Map([
@@ -179,7 +303,7 @@ describe("new video workspace snapshot", () => {
         expect(storageManager.updateFavoriteActress).toHaveBeenCalledOnce();
         expect(plugin.events.emit).toHaveBeenCalledOnce();
         expect(plugin.notifications.error).not.toHaveBeenCalled();
-        expect(plugin.notifications.ok).toHaveBeenCalledWith("女优 Alice Updated 信息已更新");
+        expect(plugin.notifications.ok).toHaveBeenCalledWith("已更新演员信息");
         expect(dialog.close).toHaveBeenCalledWith(1);
     });
 
@@ -196,7 +320,7 @@ describe("new video workspace snapshot", () => {
         await dialog.open.mock.calls[0][0].yes(1);
 
         expect(actresses[0].name).toBe("Alice");
-        expect(plugin.notifications.error).toHaveBeenCalledWith("修改失败: IndexedDB unavailable");
+        expect(plugin.notifications.error).toHaveBeenCalledWith("演员信息保存失败，请重试");
         expect(plugin.events.emit).not.toHaveBeenCalled();
         expect(dialog.close).not.toHaveBeenCalled();
     });
@@ -214,7 +338,7 @@ describe("new video workspace snapshot", () => {
         await dialog.open.mock.calls[0][0].yes(1);
 
         expect(actresses[0].name).toBe("Alice");
-        expect(plugin.notifications.error).toHaveBeenCalledWith("修改失败: 演员记录已不存在");
+        expect(plugin.notifications.error).toHaveBeenCalledWith("演员信息保存失败，请重试");
         expect(plugin.events.emit).not.toHaveBeenCalled();
         expect(dialog.close).not.toHaveBeenCalled();
     });

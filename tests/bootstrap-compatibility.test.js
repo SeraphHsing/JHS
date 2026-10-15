@@ -69,7 +69,7 @@ describe("bootstrap compatibility P0", () => {
     });
 
     it("logger runtime is frozen and exposes clog/show/loading before mirroring to window", () => {
-        expect(logger).toContain("loggerRuntime = Object.freeze({ loading: loggerLoading, show: loggerShow, clog: loggerClog })");
+        expect(logger).toContain("loggerRuntime = Object.freeze({ loading: loggerLoading, show: loggerShow, clog: loggerClog, showImageViewer: window.showImageViewer })");
         expect(logger).toContain("window.clog = loggerRuntime.clog");
         expect(logger).not.toContain("await storageManager.getSetting");
         expect(logger).not.toContain("async function()");

@@ -4,6 +4,8 @@ import vm from "node:vm";
 import jqueryFactory from "jquery";
 import { JSDOM } from "jsdom";
 import { describe, expect, it, vi } from "vitest";
+import { OwnedPopover, closeOwnedPopover } from "../src/core/owned-popover.js";
+import { getIcon } from "../src/core/icons.js";
 
 function loadMobilePlugin({ beans: beanOverrides = null, isListPage = true, isDetailPage = false, openNewVideo = null } = {}) {
     const dom = new JSDOM("<body></body>", { url: "https://javdb.com/" }), $ = jqueryFactory(dom.window);
@@ -18,7 +20,7 @@ function loadMobilePlugin({ beans: beanOverrides = null, isListPage = true, isDe
         locateListRoot: vi.fn(() => dom.window.document.querySelector(".movie-list, .masonry")),
     };
     const context = vm.createContext({
-        window: dom.window, document: dom.window.document, $, localStorage: dom.window.localStorage,
+        window: dom.window, document: dom.window.document, $, localStorage: dom.window.localStorage, getIcon, OwnedPopover, closeOwnedPopover,
         PRIMARY_QUICK_FILTERS: [ "all", "waitCheck", "favorite", "hasDown", "hasWatch" ],
         SECONDARY_QUICK_FILTERS: [ "blockedItems", "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d" ],
         QUICK_FILTER_LABELS: labels, normalizeQuickFilterKey: value => labels[value] ? value : "waitCheck",
@@ -179,6 +181,20 @@ describe("desktop commandbar restore (regular ↔ compact)", () => {
         // 真实点击验证 handler 仍在。
         $("#waitCheckBtn").trigger("click");
         expect(clicked).toBe(1);
+    });
+
+    it("retains portalled source controls during recollection and returns them before parking", () => {
+        const { $, plugin } = loadMobilePlugin();
+        $("body").html('<div class="movie-list"></div><div class="jhs-list-btn-row"><button id="waitCheckBtn">鉴定</button><button id="favoriteAllVideo">批量收藏</button></div>');
+        plugin.buildCommandBar();
+        const source = $("#favoriteAllVideo")[0], popover = [...plugin._commandBarPopovers][0];
+        popover.open();
+        plugin.collectCommandControls($("#jhs-page-commandbar"));
+        expect(popover.menu.contains(source)).toBe(true);
+        expect($("#favoriteAllVideo")).toHaveLength(1);
+        plugin.unmountDesktopCommandBar();
+        expect(popover.opened).toBe(false);
+        expect($("#favoriteAllVideo").closest("#jhs-commandbar-parking")).toHaveLength(1);
     });
 
     it("feature disposal restores moved controls and attributes and removes owned surfaces", () => {

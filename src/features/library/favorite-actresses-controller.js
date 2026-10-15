@@ -4,7 +4,7 @@ import { _ } from "../../core/constants.js";
 
 const CONFIRM_SELECTOR = 'a[href*="/actors/"][href*="/uncollect"]';
 const ACTOR_ACTION = /\/actors\/(\w+)\/(collect|uncollect)/u;
-const HIGHLIGHT_TITLE = "高亮已收藏演员, 可在设置-基础配置中关闭";
+const HIGHLIGHT_TITLE = "已收藏演员，前往设置调整高亮";
 
 /** Own JavDB actress decoration and collection events while preserving the 6.5.1 storage contract. */
 export class FavoriteActressesController {

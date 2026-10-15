@@ -37,29 +37,29 @@ export class BlacklistEntryController {
         const subjectLabel = isTag ? `分类 <span class="jhs-task-emphasis">${escapeHtml(info.movieType)}</span>` : `该演员 <span class="jhs-task-emphasis">${escapeHtml(info.name)}</span>`;
         const subjectName = isTag ? `分类 ${info.movieType}` : `演员 ${info.name}`;
         let message = alreadyAdded
-            ? `${subjectLabel} 已在黑名单中, 是否从当前页开始追加屏蔽?`
-            : `是否将${subjectLabel}加入到黑名单中?`;
+            ? `${subjectLabel} 已在黑名单中，从当前页追加屏蔽？`
+            : `屏蔽${subjectLabel}？`;
         if (new URL(this.location.href).searchParams.get("page") && new URL(this.location.href).searchParams.get("page") !== "1") {
-            message += "<br/> 注意: 当前页面非第一页, 屏蔽数据将从此页面开始";
+            message += "<br/>当前不是第一页，将从此页开始屏蔽";
         }
         if (this.site === "javbus") {
             const currentPage = Number(new URL(this.location.href).pathname.split("/").filter(Boolean).at(-1));
-            if (Number.isFinite(currentPage) && currentPage > 1) message += "<br/> 注意: 当前页面非第一页, 屏蔽数据将从此页面开始";
+            if (Number.isFinite(currentPage) && currentPage > 1) message += "<br/>当前不是第一页，将从此页开始屏蔽";
         }
         this.ui.confirm(position, message, () => {
             void this.addAndScan(info).catch((error) => this.logger?.error?.("加入黑名单失败", subjectName, error));
-        });
+        }, { confirmText: "屏蔽" });
     }
 
     /** Save the actor record once, then commit each parsed page using the established storage API. */
     async addAndScan(info = this.getSubjectInfo()) {
         this.assertActive();
-        if (!this.task) return this.notifications.error("后台任务功能已禁用，无法执行黑名单抓取");
+        if (!this.task) return this.notifications.error("后台任务已关闭");
         const locks = this.window.navigator?.locks;
         if (!locks?.request) return this.notifications.error("当前浏览器不支持后台任务互斥");
         return locks.request(this.task.singleTaskKey, { ifAvailable: true }, async (lock) => {
             this.assertActive();
-            if (!lock) return this.notifications.error("当前有定时任务在后台执行中, 无法发起此操作");
+            if (!lock) return this.notifications.error("后台任务运行中，请稍后再试");
             const loading = this.ui.loading();
             try {
                 await this.state.addBlacklistItem({
@@ -68,7 +68,7 @@ export class BlacklistEntryController {
                 });
                 const result = await this.scanPages(info.name, info.starId, this.$(this.document), this.site);
                 const page = result.lastPageLink || this.location.href;
-                this.notifications.ok(`屏蔽结束,是否跳转到最后一页: ${page}`, {
+                this.notifications.ok("已屏蔽，点击查看最后一页", {
                     duration: -1, close: true,
                     onClick: () => { this.window.location.href = page; },
                 });
@@ -76,7 +76,7 @@ export class BlacklistEntryController {
             } catch (error) {
                 this.logger?.error?.("演员黑名单扫描失败", error);
                 const failedPage = this.nextPageLink || this.location.href;
-                this.notifications.error("发生错误, 是否跳转到解析失败的那一页? (点击并跳转)", {
+                this.notifications.error("解析出错，点击查看出错页面", {
                     duration: -1, close: true,
                     onClick: () => { this.window.location.href = failedPage; },
                 });

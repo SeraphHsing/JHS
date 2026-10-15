@@ -13,7 +13,7 @@ function createController({ search = "", page = 1, catalog = vi.fn(async () => (
     });
     const scope = new LifecycleScope("feature:fc2-catalog");
     const close = vi.fn(), smoothScrollToTop = vi.fn(async () => {}), notifications = { error: vi.fn() }, diagnostics = { recordError: vi.fn() };
-    const jquery = jqueryFactory(dom.window);
+    const jquery = jqueryFactory.fn?.jquery ? jqueryFactory : jqueryFactory(dom.window);
     const movie = { catalog, resolve: vi.fn(async () => ({ movieId: "movie-1" })) };
     const controller = new Fc2CatalogController({
         document: dom.window.document, window: dom.window, site: "javdb", route: "list",
@@ -24,9 +24,28 @@ function createController({ search = "", page = 1, catalog = vi.fn(async () => (
     return { controller, dom, catalog, scope, close, smoothScrollToTop, notifications, diagnostics, movie };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("FC2 123AV Feature catalog lifecycle", () => {
+    for (const actorsFail of [false, true]) it(`clears summary and actors busy after ${actorsFail ? "failed" : "successful"} actor loading`, async () => {
+        const { controller, dom, scope, movie } = createController();
+        vi.stubGlobal("$", controller.jquery);
+        let finishSummary, finishActors;
+        controller.get123AvVideoInfo = vi.fn(() => new Promise(resolve => { finishSummary = resolve; }));
+        controller.getActressInfo = vi.fn(() => new Promise((resolve, reject) => { finishActors = actorsFail ? reject : resolve; }));
+        controller.getImgList = vi.fn(async () => []); movie.sourceUrls = vi.fn(() => []);
+        const root = controller.jquery('<div><div class="jhs-fc2-summary__body"><div data-jhs-role="summary-content"></div></div><div data-jhs-role="gallery-grid"></div></div>').appendTo(dom.window.document.body);
+        const context = { root, carNum: "FC2-123", source: "123av", url: "https://123av.com/video/test", isAlive: () => !scope.disposed };
+        const pending = controller.loadDetail(context, context.url);
+        expect(root.find('[data-jhs-role="summary-content"]').attr("aria-busy")).toBe("true");
+        finishSummary({ title: "测试影片", publishDate: "2026-10-06" });
+        await vi.waitFor(() => expect(root.find('[data-jhs-role="actors"]').attr("aria-busy")).toBe("true"));
+        expect(root.find('[data-jhs-role="summary-content"]').attr("aria-busy")).toBe("false");
+        finishActors(actorsFail ? new Error("offline") : { actors: [] }); await pending;
+        expect(root.find('[data-jhs-role="actors"]').attr("aria-busy")).toBe("false");
+        expect(root.text()).toContain(actorsFail ? "演员信息加载失败" : "暂无演员信息");
+        scope.dispose(); dom.window.close();
+    });
     it("resets page and maxPage when searching with a new keyword", async () => {
         const { controller, dom, catalog } = createController({ search: "old", page: 8, catalog: vi.fn(async () => ({ items: [], maxPage: 20 })) });
         await controller.start();
