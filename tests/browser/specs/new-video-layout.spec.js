@@ -1,6 +1,61 @@
 import {test,expect} from "@playwright/test";
 import {fulfillHostFixtures,injectUserscriptRuntime} from "../harness/runtime.js";
 
+for (const scenario of [
+    { name: "returning to the first page", count: 9, removed: ["ABC-002"], target: 2, back: true, page: 1, expected: ["ABC-001", "ABC-003", "ABC-004"] },
+    { name: "using an outdated last-page button", count: 7, removed: ["ABC-002"], target: 3, page: 2, expected: ["ABC-005", "ABC-006", "ABC-007"] },
+    { name: "removing every record", count: 4, removed: ["ABC-001", "ABC-002", "ABC-003", "ABC-004"], target: 2, page: 1, expected: [] },
+]) test(`pagination during a real removal stays current when ${scenario.name}`, async ({ page, context }, info) => {
+    test.skip(!["desktop-wide", "mobile"].includes(info.project.name), "desktop and mobile pagination acceptance");
+    await fulfillHostFixtures(context);
+    await page.goto("https://javdb.com/");
+    await injectUserscriptRuntime(page, { disabledPlugins: ["TaskPlugin"], settingOverrides: { enableLoadReview: "no" } });
+    await page.waitForFunction(() => window.unsafeWindow.pluginManager.getBean("NewVideoPlugin")?.nvEventUnsubscribe);
+    await page.evaluate(async count => {
+        const storage = window.storageManager;
+        await storage.forage.setItem(storage.favorite_actresses_key, [{ starId: "fixture", name: "Fixture", actressType: "censored",
+            newVideoList: Array.from({ length: count }, (_, index) => ({
+                carNum: `ABC-${String(index + 1).padStart(3, "0")}`, publishTime: "2026-09-09", title: "Fixture",
+                coverUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+            })),
+        }]);
+        storage._invalidateCache(storage.favorite_actresses_key);
+        localStorage.setItem("jhs_newVideoViewMode", "list");
+        const plugin = window.unsafeWindow.pluginManager.getBean("NewVideoPlugin");
+        plugin.nvPageSize = 3;
+        await plugin.openDialog();
+    }, scenario.count);
+    await expect(page.locator("#nv-grid .nv-card")).toHaveCount(3);
+    const result = await page.evaluate(async ({ removed, target, back }) => {
+        const plugin = window.unsafeWindow.pluginManager.getBean("NewVideoPlugin");
+        await plugin.getRuntimeService("state").removeFromNewVideoList(removed, "manual");
+        const pending = plugin.flushWorkspaceReload();
+        for (let attempt = 0; attempt < 50 && !plugin.nvRemovingCards.size; attempt++) await new Promise(resolve => setTimeout(resolve, 0));
+        const animationWasActive = plugin.nvRemovingCards.size > 0;
+        window.jQuery(`.nv-card[data-car="${removed[0]}"] .nv-select`).prop("checked", true).trigger("change");
+        window.jQuery('.nv-card[data-car="ABC-003"] .nv-select').prop("checked", true).trigger("change");
+        document.querySelector(`#nv-pagination-bar [data-nvpage="${target}"]`).click();
+        await pending;
+        if (back) document.querySelector('#nv-pagination-bar [data-nvpage="1"]').click();
+        const actresses = await window.storageManager.getFavoriteActressList();
+        return { animationWasActive, page: plugin.nvCurrentPage, selected: [...plugin.nvSelected],
+            visible: [...document.querySelectorAll("#nv-grid .nv-card")].map(card => card.dataset.car),
+            cached: plugin.nvFlatListCache.map(item => item.carNum),
+            stored: actresses.flatMap(actress => actress.newVideoList.map(item => typeof item === "string" ? item : item.carNum)),
+        };
+    }, scenario);
+    expect(result.animationWasActive).toBe(true);
+    expect(result.visible).toEqual(scenario.expected);
+    expect(result.page).toBe(scenario.page);
+    expect(result.selected).toEqual(scenario.removed.includes("ABC-003") ? [] : ["ABC-003"]);
+    expect(result.cached).toHaveLength(scenario.count - scenario.removed.length);
+    for (const carNum of scenario.removed) expect(result.stored).not.toContain(carNum);
+    if (!scenario.expected.length) {
+        await expect(page.locator("#new-video-list-container")).toContainText("暂无新作品记录");
+        await expect(page.locator("#nv-pagination-bar")).toHaveCount(0);
+    }
+});
+
 test("browsing new video fades only that card and fills the page without losing position",async({page,context},info)=>{
     test.skip(!["desktop-wide","mobile"].includes(info.project.name),"desktop and mobile scrolling owners");
     await fulfillHostFixtures(context);

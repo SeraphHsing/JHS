@@ -161,6 +161,9 @@ export class NewVideoPlugin extends BasePlugin {
         const generation = this.nvRenderGeneration, container = $("#new-video-list-container"), root = container[0];
         const cards = container.find(".nv-card").filter((_, card) => carNums.has(normalizeCarNum($(card).attr("data-car"))));
         carNums.forEach(carNum => { this.nvAllItemsMap.delete(carNum); this.nvSelected.delete(carNum); });
+        // Pagination can interrupt the animation; its data must already reflect the committed removal.
+        this.nvFlatListCache = this.nvFlatListCache.filter(item => !carNums.has(normalizeCarNum(item.carNum)));
+        this.nvCurrentPageItems = (this.nvCurrentPageItems || []).filter(item => !carNums.has(normalizeCarNum(item.carNum)));
         this.nvActressesCache = this.nvActressesCache.map(actress => Array.isArray(actress.newVideoList) ? {
             ...actress, newVideoList: actress.newVideoList.filter(item => !carNums.has(normalizeCarNum(typeof item === "string" ? item : item?.carNum)))
         } : actress);
@@ -603,11 +606,14 @@ export class NewVideoPlugin extends BasePlugin {
         return c;
     }
     nvRenderPage(generation = this.nvRenderGeneration, { incremental = !1 } = {}) {
-        const e = this.nvFlatListCache;
-        if (!e || 0 === e.length) return;
-        const t = this.nvSortList(e), n = this.nvPageSize, a = (this.nvCurrentPage - 1) * n, i = a + n, s = t.slice(a, i), o = Math.ceil(t.length / n);
-        this.nvCurrentPageItems = s;
         if (generation !== this.nvRenderGeneration) return;
+        this.pruneNewVideoSelection();
+        const e = this.nvFlatListCache;
+        if (!e || 0 === e.length) return void this.renderNewVideoList();
+        const t = this.nvSortList(e), n = this.nvPageSize, o = Math.ceil(t.length / n);
+        this.nvCurrentPage = Math.max(1, Math.min(this.nvCurrentPage, o));
+        const a = (this.nvCurrentPage - 1) * n, i = a + n, s = t.slice(a, i);
+        this.nvCurrentPageItems = s;
         $("#nv-pagination-bar").remove();
         const l = $("#new-video-list-container"), grid = l.find("#nv-grid");
         incremental = incremental && grid.length > 0;

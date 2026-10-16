@@ -221,6 +221,41 @@ describe("new-video browse removal", () => {
         expect($("#nvSearch").val()).toBe("keep");
     });
 
+    it.each([
+        { name: "returns to an updated first page", count: 9, removed: ["ABC-002"], target: 2, back: true, page: 1, expected: ["ABC-001", "ABC-003", "ABC-004"] },
+        { name: "clamps an old last-page button", count: 7, removed: ["ABC-002"], target: 3, page: 2, expected: ["ABC-005", "ABC-006", "ABC-007"] },
+        { name: "shows the empty view after all records are removed", count: 4, removed: ["ABC-001", "ABC-002", "ABC-003", "ABC-004"], target: 2, page: 1, expected: [] },
+    ])("pagination during a removal $name", async ({ count, removed, target, back, page, expected }) => {
+        const { plugin, $, state, dom } = await createHarness(count), finishes = [];
+        dom.window.matchMedia = () => ({ matches: false });
+        vi.spyOn($.fn, "animate").mockImplementation(function(_properties, _duration, complete) {
+            finishes.push(complete);
+            return this;
+        });
+        await state.removeFromNewVideoList(removed, "manual");
+        const pending = plugin.flushWorkspaceReload();
+        await vi.waitFor(() => expect(finishes.length).toBeGreaterThan(0));
+        try {
+            $(`.nv-card[data-car="${removed[0]}"] .nv-select`).prop("checked", true).trigger("change");
+            $('.nv-card[data-car="ABC-003"] .nv-select').prop("checked", true).trigger("change");
+            $(`#nv-pagination-bar [data-nvpage="${target}"]`).trigger("click");
+        } finally {
+            finishes.forEach(finish => finish());
+            await pending;
+        }
+        if (back) $('#nv-pagination-bar [data-nvpage="1"]').trigger("click");
+        expect(visibleKeys($)).toEqual(expected);
+        expect(plugin.nvCurrentPage).toBe(page);
+        expect(plugin.nvCurrentPageItems.map(item => item.carNum)).toEqual(expected);
+        expect(plugin.nvFlatListCache).toHaveLength(count - removed.length);
+        expect([...plugin.nvSelected]).toEqual(removed.includes("ABC-003") ? [] : ["ABC-003"]);
+        if (expected.length) expect($("#nv-pagination-bar").text()).toContain(`共 ${count - removed.length} 条`);
+        else {
+            expect($("#nv-pagination-bar")).toHaveLength(0);
+            expect($("#new-video-list-container").text()).toContain("暂无新作品记录");
+        }
+    });
+
     it.each(["state-handled", "manual"])("shares the same incremental path for a committed %s removal", async reason => {
         const { plugin, $, state } = await createHarness();
         const grid = $("#nv-grid")[0], reload = vi.spyOn(plugin, "reloadNewVideoWorkspaceData");
