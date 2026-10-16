@@ -44,21 +44,21 @@ describe("default quick-filter setting", () => {
         vi.unstubAllGlobals();
     });
 
-    it("renders all selectable filters except blocked items in the dialog and registry", async () => {
+    it("renders every quick filter in the dialog and registry without changing the default", async () => {
         const { root, registry } = await createHarness();
         const select = root.find("#defaultQuickFilterTab");
         const options = select.find("option").map((_, option) => ({ value: option.value, label: option.textContent })).get();
         expect(options.map(({ value }) => value)).toEqual([
-            "all", "waitCheck", "favorite", "hasDown", "hasWatch", "undownloaded",
+            "all", "waitCheck", "favorite", "hasDown", "hasWatch", "blockedItems", "undownloaded",
             "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d",
         ]);
         expect(registry.get("defaultQuickFilterTab").options).toEqual(options);
         expect(select.find('option[value="undownloaded"]').text()).toBe("全部未下载");
-        expect(select.find('option[value="blockedItems"]')).toHaveLength(0);
+        expect(select.find('option[value="blockedItems"]').text()).toBe("屏蔽项");
         expect(select.val()).toBe("waitCheck");
     });
 
-    it.each(["undownloaded", "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d"])(
+    it.each(["blockedItems", "undownloaded", "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d"])(
         "persists and reloads %s through the original settings binding", async value => {
             const { root, binding, stored, storage } = await createHarness({ defaultQuickFilterTab: "waitCheck" });
             root.find("#defaultQuickFilterTab").val(value).trigger("change");
@@ -72,9 +72,10 @@ describe("default quick-filter setting", () => {
         }
     );
 
-    it("falls back to pending for an old blocked default without writing during hydration", async () => {
-        const { root, stored } = await createHarness({ defaultQuickFilterTab: "blockedItems" });
-        expect(root.find("#defaultQuickFilterTab").val()).toBe("waitCheck");
-        expect(stored.setting.defaultQuickFilterTab).toBe("blockedItems");
+    it.each(["blockedItems", "filter"])("preserves the effective blocked default %s without writing during hydration", async value => {
+        const { root, stored } = await createHarness({ defaultQuickFilterTab: value });
+        expect(root.find("#defaultQuickFilterTab").val()).toBe("blockedItems");
+        expect(root.find("#defaultQuickFilterTab").val()).toBe(normalizeQuickFilterKey(stored.setting.defaultQuickFilterTab));
+        expect(stored.setting.defaultQuickFilterTab).toBe(value);
     });
 });

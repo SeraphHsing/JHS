@@ -1,6 +1,30 @@
 import { expect, test } from "@playwright/test";
 import { fulfillHostFixtures, injectUserscriptRuntime } from "../harness/runtime.js";
 
+for (const defaultQuickFilterTab of ["blockedItems", "filter"]) test(`blocked default ${defaultQuickFilterTab} agrees with settings and remains selectable`, async ({ context, page }, info) => {
+  test.skip(!["desktop-wide", "mobile"].includes(info.project.name), "desktop and mobile default-filter compatibility");
+  await fulfillHostFixtures(context);
+  await page.goto("https://javdb.com/");
+  await injectUserscriptRuntime(page, { settingOverrides: { defaultQuickFilterTab, enableLoadReview: "no" } });
+  await expect.poll(() => page.evaluate(() => window.unsafeWindow.pluginManager.getBean("ListPagePlugin").activeQuickFilter)).toBe("blockedItems");
+  await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog("base-panel"));
+  const select = page.locator("#defaultQuickFilterTab");
+  await expect(select).toHaveValue("blockedItems");
+  await expect(select.locator("option")).toHaveCount(11);
+  await expect(select.locator('option[value="blockedItems"]')).toHaveText("屏蔽项");
+  await page.evaluate(async () => {
+    window.jQuery("#defaultQuickFilterTab").val("undownloaded").trigger("change");
+    await window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings").waitForIdle();
+  });
+  await expect(select).toHaveValue("undownloaded");
+  await expect.poll(() => page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings").snapshot().defaultQuickFilterTab)).toBe("undownloaded");
+  await page.evaluate(async () => {
+    window.jQuery("#defaultQuickFilterTab").val("blockedItems").trigger("change");
+    await window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings").waitForIdle();
+  });
+  await expect.poll(() => page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings").snapshot().defaultQuickFilterTab)).toBe("blockedItems");
+});
+
 test("feature disabled leaves no dead list button", async ({ context, page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-wide", "one deterministic project covers capability rendering");
   await fulfillHostFixtures(context);

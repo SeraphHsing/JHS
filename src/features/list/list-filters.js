@@ -17,7 +17,6 @@ export const PRIMARY_QUICK_FILTERS = Object.freeze([ "all", "waitCheck", "favori
 /** @type {ReadonlyArray<QuickFilterKey>} */
 export const SECONDARY_QUICK_FILTERS = Object.freeze([ "blockedItems", "undownloaded", "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d" ]);
 export const DEFAULT_QUICK_FILTER_OPTIONS = Object.freeze([ ...PRIMARY_QUICK_FILTERS, ...SECONDARY_QUICK_FILTERS ]
-    .filter(filter => filter !== "blockedItems")
     .map(value => Object.freeze({ value, label: QUICK_FILTER_LABELS[value] })));
 const VALID_QUICK_FILTERS = new Set([ ...PRIMARY_QUICK_FILTERS, ...SECONDARY_QUICK_FILTERS ]);
 

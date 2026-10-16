@@ -337,11 +337,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             selector: "#defaultQuickFilterTab",
             key: "defaultQuickFilterTab",
             getValue: () => normalizeQuickFilterKey(root.find("#defaultQuickFilterTab").val()),
-            setValue: (value) => {
-                const select = root.find("#defaultQuickFilterTab");
-                select.val(String(value ?? ""));
-                if (select.val() == null) select.val("waitCheck");
-            },
+            setValue: (value) => root.find("#defaultQuickFilterTab").val(normalizeQuickFilterKey(value)),
             fallback: "waitCheck",
             label: "列表默认筛选",
         });
