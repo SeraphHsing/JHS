@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 import { ICON_LICENSE } from "../src/core/icon-license.js";
+import { prebuildStyles } from "./prebuild-styles.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcPath = join(repoRoot, "src", "main.js");
@@ -45,6 +46,7 @@ export async function buildUserscript({ outputPaths = [distPath, rootPath], tran
       setup(build) {
         build.onLoad({ filter: /src[\\/].*\.js$/ }, async (args) => {
           let contents = await readFile(args.path, "utf8");
+          contents = await prebuildStyles(relative(repoRoot, args.path), contents);
           if (args.path === srcPath) contents = contents.replace(/^\/\/ ==UserScript==[\s\S]*?^\/\/ ==\/UserScript==\r?\n?/m, "");
           return { contents: contents.replace(/\/\*\*[\s\S]*?\*\//g, ""), loader: "js" };
         });

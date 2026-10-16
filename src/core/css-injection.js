@@ -73,7 +73,7 @@ let coreCssInjected = false;
 /** 在 Bootstrap 阶段一次性注入核心、宿主和 UI primitive 样式。 @param {{register?: (id: string, css: string) => unknown}} [styles] @param {string} [detailPanelCss] */
 export function injectCoreCss(styles, detailPanelCss = "") {
     if (coreCssInjected) return;
-    const register = (/** @type {string} */ id, /** @type {string} */ css) => styles?.register ? styles.register(id, css.replace(/^\s*<style>|<\/style>\s*$/g, "")) : H(css);
+    const register = (/** @type {string} */ id, /** @type {string} */ css) => styles?.register ? styles.register(id, css.replace(/^\s*<style\b[^>]*>|<\/style>\s*$/g, "")) : H(css);
     register("jhs-core-theme", buildThemeCss());
     l && register("jhs-host-javbus", buildJavBusCss()), r && register("jhs-host-javdb", buildJavDbCss());
     register("jhs-core-layout", F);
