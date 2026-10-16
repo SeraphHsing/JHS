@@ -25,30 +25,37 @@ const styles = locator => locator.evaluate(node => {
 });
 
 for (const theme of ["light", "dark"]) {
-    test(`isolated native autofill keeps owned field background text and caret ${theme}`, async ({ page, context, browserName }) => {
+    test(`isolated native autofill keeps owned field background text and caret ${theme}`, async ({ browserName }, info) => {
         test.skip(browserName !== "chromium", "Native Autofill CDP bridge is Chromium only; Firefox field states run separately");
-        await boot(page, context, theme);
-        await page.evaluate(() => {
-            const form = document.createElement("form"); form.className = "jhs-ui";
-            form.style.cssText = "position:fixed;top:20px;left:20px;z-index:9999999;background:var(--jhs-surface)";
-            form.innerHTML = '<input class="jhs-field" id="autofill-name" name="name" autocomplete="name" aria-label="姓名"><input class="jhs-field" name="address" autocomplete="street-address" aria-label="地址"><input class="jhs-field" name="city" autocomplete="address-level2" aria-label="城市"><input class="jhs-field" name="zip" autocomplete="postal-code" aria-label="邮编">';
-            document.body.append(form);
-        });
-        const field = page.locator("#autofill-name"), before = await styles(field), session = await context.newCDPSession(page);
-        const { root } = await session.send("DOM.getDocument");
-        const { nodeId } = await session.send("DOM.querySelector", { nodeId: root.nodeId, selector: "#autofill-name" });
-        const { node } = await session.send("DOM.describeNode", { nodeId });
-        await field.focus();
-        await session.send("Autofill.trigger", { fieldId: node.backendNodeId, address: { fields: [
-            { name: "NAME_FULL", value: "JHS Test User" }, { name: "ADDRESS_HOME_STREET_ADDRESS", value: "123 Test Avenue" },
-            { name: "ADDRESS_HOME_CITY", value: "Testville" }, { name: "ADDRESS_HOME_STATE", value: "CA" },
-            { name: "ADDRESS_HOME_ZIP", value: "94043" }, { name: "ADDRESS_HOME_COUNTRY", value: "US" }
-        ] } });
-        await expect(field).toHaveValue("JHS Test User");
-        expect(await field.evaluate(n => n.matches(":autofill"))).toBe(true);
-        const autofill = await field.evaluate(n => { const s = getComputedStyle(n); return { shadow: s.boxShadow, fill: s.webkitTextFillColor, caret: s.caretColor, text: s.color }; });
-        expect(autofill.shadow).toContain("1000px"); expect(autofill.shadow).toContain(before.background);
-        expect(autofill.fill).toBe(before.color); expect(autofill.caret).toBe(before.color); await session.detach();
+        // Autofill is a full-browser capability, absent from the default headless shell.
+        const browser = await chromium.launch({ channel: "chromium", headless: true });
+        try {
+            const { viewport, hasTouch, isMobile } = info.project.use;
+            const context = await browser.newContext({ viewport, hasTouch, isMobile, serviceWorkers: "block" });
+            const page = await context.newPage();
+            await boot(page, context, theme);
+            await page.evaluate(() => {
+                const form = document.createElement("form"); form.className = "jhs-ui";
+                form.style.cssText = "position:fixed;top:20px;left:20px;z-index:9999999;background:var(--jhs-surface)";
+                form.innerHTML = '<input class="jhs-field" id="autofill-name" name="name" autocomplete="name" aria-label="姓名"><input class="jhs-field" name="address" autocomplete="street-address" aria-label="地址"><input class="jhs-field" name="city" autocomplete="address-level2" aria-label="城市"><input class="jhs-field" name="zip" autocomplete="postal-code" aria-label="邮编">';
+                document.body.append(form);
+            });
+            const field = page.locator("#autofill-name"), before = await styles(field), session = await context.newCDPSession(page);
+            const { root } = await session.send("DOM.getDocument");
+            const { nodeId } = await session.send("DOM.querySelector", { nodeId: root.nodeId, selector: "#autofill-name" });
+            const { node } = await session.send("DOM.describeNode", { nodeId });
+            await field.focus();
+            await session.send("Autofill.trigger", { fieldId: node.backendNodeId, address: { fields: [
+                { name: "NAME_FULL", value: "JHS Test User" }, { name: "ADDRESS_HOME_STREET_ADDRESS", value: "123 Test Avenue" },
+                { name: "ADDRESS_HOME_CITY", value: "Testville" }, { name: "ADDRESS_HOME_STATE", value: "CA" },
+                { name: "ADDRESS_HOME_ZIP", value: "94043" }, { name: "ADDRESS_HOME_COUNTRY", value: "US" }
+            ] } });
+            await expect(field).toHaveValue("JHS Test User");
+            expect(await field.evaluate(n => n.matches(":autofill"))).toBe(true);
+            const autofill = await field.evaluate(n => { const s = getComputedStyle(n); return { shadow: s.boxShadow, fill: s.webkitTextFillColor, caret: s.caretColor, text: s.color }; });
+            expect(autofill.shadow).toContain("1000px"); expect(autofill.shadow).toContain(before.background);
+            expect(autofill.fill).toBe(before.color); expect(autofill.caret).toBe(before.color); await session.detach();
+        } finally { await browser.close(); }
     });
     test(`owned component state matrix and host boundary ${theme}`, async ({ page, context }, info) => {
         const nativeScrollbar = await page.evaluate(() => {
