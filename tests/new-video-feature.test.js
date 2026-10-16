@@ -107,8 +107,9 @@ describe("new video and scheduler feature lifecycle", () => {
         await vi.waitFor(() => expect(plugin.showNewVideoCount).toHaveBeenCalledOnce());
         expect(events.on).toHaveBeenCalledWith("new-video-changed", expect.any(Function));
         expect(events.on).toHaveBeenCalledWith("task-status-changed", expect.any(Function));
-        handlers.get("new-video-changed")();
-        expect(plugin.scheduleWorkspaceReload).toHaveBeenCalledOnce();
+        const removal = { reason: "browse", carNums: ["ABC-123"] };
+        handlers.get("new-video-changed")(removal);
+        expect(plugin.scheduleWorkspaceReload).toHaveBeenCalledExactlyOnceWith(removal);
         handlers.get("task-status-changed")();
         expect(plugin.renderTaskStatuses).toHaveBeenCalledOnce();
         expect(result.activeContributions).toEqual(["discovery.new-video"]);

@@ -10,8 +10,8 @@ import { getIcon } from "../src/core/icons.js";
 function loadMobilePlugin({ beans: beanOverrides = null, isListPage = true, isDetailPage = false, openNewVideo = null } = {}) {
     const dom = new JSDOM("<body></body>", { url: "https://javdb.com/" }), $ = jqueryFactory(dom.window);
     dom.window.isListPage = isListPage, dom.window.isDetailPage = isDetailPage;
-    const labels = { all: "全部", waitCheck: "待鉴定", favorite: "收藏", hasDown: "下载", hasWatch: "已看", blockedItems: "屏蔽项", favoriteUndownloaded: "收藏未下载", favoriteUnwatched: "收藏未观看", downloadedUnwatched: "下载未观看", recent7d: "最近 7 天" };
-    const filterCatalog = { primary: [ "all", "waitCheck", "favorite", "hasDown", "hasWatch" ], secondary: [ "blockedItems", "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d" ], labels, normalize: value => labels[value] ? value : "waitCheck" };
+    const labels = { all: "全部", waitCheck: "待鉴定", favorite: "收藏", hasDown: "下载", hasWatch: "已看", blockedItems: "屏蔽项", undownloaded: "全部未下载", favoriteUndownloaded: "收藏未下载", favoriteUnwatched: "收藏未观看", downloadedUnwatched: "下载未观看", recent7d: "最近 7 天" };
+    const filterCatalog = { primary: [ "all", "waitCheck", "favorite", "hasDown", "hasWatch" ], secondary: [ "blockedItems", "undownloaded", "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d" ], labels, normalize: value => labels[value] ? value : "waitCheck" };
     const listPage = { activeQuickFilter: "waitCheck", getQuickFilterCatalog: () => filterCatalog, setQuickFilter: vi.fn(), syncQuickFilterUi: vi.fn() }, listButtons = { openWaitCheck: vi.fn(async () => {}), sortItems: vi.fn(async () => {}) };
     const beans = beanOverrides ?? { ListPagePlugin: listPage, ListPageButtonPlugin: listButtons, NewVideoPlugin: {}, BlacklistPlugin: {}, SettingPlugin: {}, DetailPageButtonPlugin: {}, MagnetHubPlugin: {} };
     if (beans.ListPagePlugin && !beans.ListPagePlugin.getQuickFilterCatalog) beans.ListPagePlugin.getQuickFilterCatalog = () => filterCatalog;
@@ -22,7 +22,7 @@ function loadMobilePlugin({ beans: beanOverrides = null, isListPage = true, isDe
     const context = vm.createContext({
         window: dom.window, document: dom.window.document, $, localStorage: dom.window.localStorage, getIcon, OwnedPopover, closeOwnedPopover,
         PRIMARY_QUICK_FILTERS: [ "all", "waitCheck", "favorite", "hasDown", "hasWatch" ],
-        SECONDARY_QUICK_FILTERS: [ "blockedItems", "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d" ],
+        SECONDARY_QUICK_FILTERS: [ "blockedItems", "undownloaded", "favoriteUndownloaded", "favoriteUnwatched", "downloadedUnwatched", "recent7d" ],
         QUICK_FILTER_LABELS: labels, normalizeQuickFilterKey: value => labels[value] ? value : "waitCheck",
         r: true, l: false, m: "屏蔽", v: "收藏", y: "下载", k: "观看", normalizeStateFlags: value => value || {},
         storageManager: {}, stateService: {}, show: { info: vi.fn() }, utils: {}, clog: { debug: vi.fn(), warn: vi.fn(), error: vi.fn() }, setTimeout, clearTimeout
@@ -55,10 +55,10 @@ describe("mobile list FAB", () => {
         expect($("html").hasClass("jhs-fab-mounted")).toBe(false);
     });
 
-    it("projects list actions, ten quick filters and a radio-style sort submenu", () => {
+    it("projects list actions, eleven quick filters and a radio-style sort submenu", () => {
         const { plugin } = loadMobilePlugin(), menu = plugin.createMenu();
         expect(menu.find(".jhs-fab-menu-item")).toHaveLength(7);
-        expect(menu.find(".jhs-mobile-filter-option")).toHaveLength(10);
+        expect(menu.find(".jhs-mobile-filter-option")).toHaveLength(11);
         expect(menu.find('.jhs-mobile-sort-option[role="menuitemradio"]')).toHaveLength(3);
         expect(menu.find('.jhs-mobile-sort-option[aria-checked="true"]')).toHaveLength(1);
         expect(menu.find('[data-action="quickFilter"]')).toHaveLength(1);

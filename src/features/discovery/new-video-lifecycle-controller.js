@@ -17,7 +17,7 @@ export class NewVideoLifecycleController {
         this.scope.assertActive();
         this.started = true;
         this.scope.addCleanup(() => this.dispose());
-        this.listen("new-video-changed", () => this.plugin.scheduleWorkspaceReload?.());
+        this.listen("new-video-changed", (payload) => this.plugin.scheduleWorkspaceReload?.(payload));
         this.listen("task-status-changed", () => {
             if (this.plugin.isWorkspaceMounted?.()) this.plugin.renderTaskStatuses?.();
         });
@@ -34,7 +34,7 @@ export class NewVideoLifecycleController {
     }
 
     /** Subscribe through the injected event service and let the Feature scope own cleanup. */
-    /** @param {string} type @param {() => void} handler */
+    /** @param {string} type @param {(payload?: any) => void} handler */
     listen(type, handler) {
         const unsubscribe = this.events?.on?.(type, handler);
         if (typeof unsubscribe === "function") this.scope.addCleanup(unsubscribe);

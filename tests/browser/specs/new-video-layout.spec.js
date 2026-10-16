@@ -1,6 +1,126 @@
 import {test,expect} from "@playwright/test";
 import {fulfillHostFixtures,injectUserscriptRuntime} from "../harness/runtime.js";
 
+for (const scenario of [
+    { name: "returning to the first page", count: 9, removed: ["ABC-002"], target: 2, back: true, page: 1, expected: ["ABC-001", "ABC-003", "ABC-004"] },
+    { name: "using an outdated last-page button", count: 7, removed: ["ABC-002"], target: 3, page: 2, expected: ["ABC-005", "ABC-006", "ABC-007"] },
+    { name: "removing every record", count: 4, removed: ["ABC-001", "ABC-002", "ABC-003", "ABC-004"], target: 2, page: 1, expected: [] },
+]) test(`pagination during a real removal stays current when ${scenario.name}`, async ({ page, context }, info) => {
+    test.skip(!["desktop-wide", "mobile"].includes(info.project.name), "desktop and mobile pagination acceptance");
+    await fulfillHostFixtures(context);
+    await page.goto("https://javdb.com/");
+    await injectUserscriptRuntime(page, { disabledPlugins: ["TaskPlugin"], settingOverrides: { enableLoadReview: "no" } });
+    await page.waitForFunction(() => window.unsafeWindow.pluginManager.getBean("NewVideoPlugin")?.featureNewVideoWorkspaceController);
+    await page.evaluate(async count => {
+        const storage = window.storageManager;
+        await storage.forage.setItem(storage.favorite_actresses_key, [{ starId: "fixture", name: "Fixture", actressType: "censored",
+            newVideoList: Array.from({ length: count }, (_, index) => ({
+                carNum: `ABC-${String(index + 1).padStart(3, "0")}`, publishTime: "2026-09-09", title: "Fixture",
+                coverUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+            })),
+        }]);
+        storage._invalidateCache(storage.favorite_actresses_key);
+        localStorage.setItem("jhs_newVideoViewMode", "list");
+        const plugin = window.unsafeWindow.pluginManager.getBean("NewVideoPlugin");
+        plugin.nvPageSize = 3;
+        await plugin.openDialog();
+    }, scenario.count);
+    await expect(page.locator("#nv-grid .nv-card")).toHaveCount(3);
+    const result = await page.evaluate(async ({ removed, target, back }) => {
+        const plugin = window.unsafeWindow.pluginManager.getBean("NewVideoPlugin");
+        await plugin.getRuntimeService("state").removeFromNewVideoList(removed, "manual");
+        const pending = plugin.flushWorkspaceReload();
+        for (let attempt = 0; attempt < 50 && !plugin.nvRemovingCards.size; attempt++) await new Promise(resolve => setTimeout(resolve, 0));
+        const animationWasActive = plugin.nvRemovingCards.size > 0;
+        window.jQuery(`.nv-card[data-car="${removed[0]}"] .nv-select`).prop("checked", true).trigger("change");
+        window.jQuery('.nv-card[data-car="ABC-003"] .nv-select').prop("checked", true).trigger("change");
+        document.querySelector(`#nv-pagination-bar [data-nvpage="${target}"]`).click();
+        await pending;
+        if (back) document.querySelector('#nv-pagination-bar [data-nvpage="1"]').click();
+        const actresses = await window.storageManager.getFavoriteActressList();
+        return { animationWasActive, page: plugin.nvCurrentPage, selected: [...plugin.nvSelected],
+            visible: [...document.querySelectorAll("#nv-grid .nv-card")].map(card => card.dataset.car),
+            cached: plugin.nvFlatListCache.map(item => item.carNum),
+            stored: actresses.flatMap(actress => actress.newVideoList.map(item => typeof item === "string" ? item : item.carNum)),
+        };
+    }, scenario);
+    expect(result.animationWasActive).toBe(true);
+    expect(result.visible).toEqual(scenario.expected);
+    expect(result.page).toBe(scenario.page);
+    expect(result.selected).toEqual(scenario.removed.includes("ABC-003") ? [] : ["ABC-003"]);
+    expect(result.cached).toHaveLength(scenario.count - scenario.removed.length);
+    for (const carNum of scenario.removed) expect(result.stored).not.toContain(carNum);
+    if (!scenario.expected.length) {
+        await expect(page.locator("#new-video-list-container")).toContainText("暂无新作品记录");
+        await expect(page.locator("#nv-pagination-bar")).toHaveCount(0);
+    }
+});
+
+test("browsing new video fades only that card and fills the page without losing position",async({page,context},info)=>{
+    test.skip(!["desktop-wide","mobile"].includes(info.project.name),"desktop and mobile scrolling owners");
+    await fulfillHostFixtures(context);
+    await page.goto("https://javdb.com/");
+    await injectUserscriptRuntime(page,{
+        disabledPlugins:["TaskPlugin"],
+        settingOverrides:{enableLoadReview:"no",autoRemoveNewVideoMarkAfterBrowse:"yes"}
+    });
+    await page.waitForFunction(()=>window.__jhsBrowserDiagnostics.bootstrapPhases["first-ready"]);
+    await page.waitForFunction(()=>window.unsafeWindow.pluginManager.getBean("NewVideoPlugin")?.featureNewVideoWorkspaceController);
+    await page.evaluate(async()=>{
+        const storage=window.storageManager;
+        await storage.forage.setItem(storage.favorite_actresses_key,[{
+            starId:"fixture",name:"Fixture",actressType:"censored",
+            newVideoList:Array.from({length:150},(_,index)=>({
+                carNum:`ABC-${String(index+1).padStart(3,"0")}`,publishTime:"2026-09-09",title:"Fixture title",
+                url:`https://javdb.com/v/nv-${index+1}`,
+                coverUrl:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+            }))
+        }]);
+        storage._invalidateCache(storage.favorite_actresses_key);
+        localStorage.setItem("jhs_newVideoViewMode","list");
+        await window.unsafeWindow.pluginManager.getBean("NewVideoPlugin").openDialog();
+    });
+    await expect(page.locator("#nv-grid .nv-card")).toHaveCount(60);
+    await page.locator("#nv-pagination-bar").getByRole("button",{name:"下一页",exact:true}).click();
+    await expect(page.locator('#nv-grid .nv-card').first()).toHaveAttribute("data-car","ABC-061");
+    const target=page.locator('.nv-card[data-car="ABC-090"] .nv-card__link');
+    await page.locator('.nv-card[data-car="ABC-091"] .nv-select').check();
+    await target.scrollIntoViewIfNeeded();
+    const before=await page.evaluate(()=>{
+        const container=document.querySelector("#new-video-list-container"),workspace=document.querySelector(".newVideoToolBox");
+        const card=document.querySelector('.nv-card[data-car="ABC-091"]');
+        window.nvRetainedNodes={grid:document.querySelector("#nv-grid"),card,image:card.querySelector("img")};
+        const animate=window.jQuery.fn.animate;
+        window.nvBrowseFades=0;
+        window.jQuery.fn.animate=function(properties,...args){
+            if(this.is('.nv-card[data-car="ABC-090"]') && properties.opacity===0) window.nvBrowseFades++;
+            return animate.call(this,properties,...args);
+        };
+        return {list:container.scrollTop,workspace:workspace.scrollTop};
+    });
+    expect(Math.max(before.list,before.workspace)).toBeGreaterThan(0);
+    const popupPromise=page.waitForEvent("popup");
+    await target.click();
+    const popup=await popupPromise;
+    await popup.close();
+    await expect(page.locator('.nv-card[data-car="ABC-090"]')).toHaveCount(0);
+    await expect(page.locator("#nv-grid .nv-card")).toHaveCount(60);
+    await expect(page.locator("#nv-grid .nv-card").last()).toHaveAttribute("data-car","ABC-121");
+    await expect(page.locator('.nv-card[data-car="ABC-091"] .nv-select')).toBeChecked();
+    await expect(page.locator("#nv-pagination-bar")).toContainText("第 2/3 页，共 149 条");
+    await expect.poll(()=>page.evaluate(()=>{
+        const container=document.querySelector("#new-video-list-container"),workspace=document.querySelector(".newVideoToolBox");
+        return {list:container.scrollTop,workspace:workspace.scrollTop};
+    })).toEqual(before);
+    expect(await page.evaluate(()=>({
+        grid:window.nvRetainedNodes.grid===document.querySelector("#nv-grid"),
+        card:window.nvRetainedNodes.card===document.querySelector('.nv-card[data-car="ABC-091"]'),
+        image:window.nvRetainedNodes.image===document.querySelector('.nv-card[data-car="ABC-091"] img'),
+        page:window.unsafeWindow.pluginManager.getBean("NewVideoPlugin").nvCurrentPage,
+        fades:window.nvBrowseFades
+    }))).toEqual({grid:true,card:true,image:true,page:2,fades:1});
+});
+
 test("new video pagination remains reachable without scrolling through sixty cards",async({page,context},info)=>{
     test.skip(info.project.name!=="desktop-wide","explicit viewport matrix owner");
     await fulfillHostFixtures(context);
