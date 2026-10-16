@@ -45,6 +45,29 @@ export class CredentialService {
         try { return await this.decode(await this.storage.getValue(key, "")); }
         catch { return ""; }
     }
+    /** Read without hiding storage/decryption failures; a tombstone is an existing empty entry. @param {string} key @returns {Promise<{exists: boolean, value: string}>} */
+    async readEntry(key) {
+        const record = await this.storage.getValue(key, undefined);
+        if (record !== undefined && typeof record !== "string" && (!record || typeof record !== "object")) throw new Error("凭证格式无效");
+        return record === undefined ? { exists: false, value: "" } : { exists: true, value: await this.decode(record) };
+    }
+    /** Replace explicitly supplied credentials, restoring the protected original record if the related operation fails. Caller serializes access to this key. @template T @param {string} key @param {string} value @param {() => Promise<T>} operation @returns {Promise<T>} */
+    async replaceWithRollback(key, value, operation) {
+        const previous = await this.storage.getValue(key, undefined);
+        try {
+            await this.set(key, value);
+            return await operation();
+        } catch (error) {
+            try {
+                if (previous === undefined) await this.storage.removeValue(key);
+                else await this.storage.setValue(key, previous);
+                if (JSON.stringify(await this.storage.getValue(key, undefined)) !== JSON.stringify(previous)) throw new Error("凭证恢复回读校验失败");
+            } catch (rollbackError) {
+                throw new AggregateError([error, rollbackError], "凭证保存失败，原记录恢复失败，请重新保存连接信息");
+            }
+            throw error;
+        }
+    }
     /** @param {string} key @param {string} value */
     async set(key, value) {
         const plaintext = String(value || "");

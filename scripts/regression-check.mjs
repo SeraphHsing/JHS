@@ -340,7 +340,7 @@ assert(!settingsServiceSource.includes("extends BasePlugin"), "settings service 
 assert(!settingsServiceSource.includes("globalThis.$"), "settings service must receive its UI dependencies from Settings Feature");
 assert(!settingBackupSource.includes("globalThis."), "settings backup helpers must use injected browser and UI capabilities");
 assertIncludes(settingBackupSource, "BackupUiDependencies", "settings backup helpers declare their injected service boundary");
-assertIncludes(settingBackupSource, "openFileListDialog(e, t, n, folderName, showDiffPreviewFn, dialog, dependencies)", "WebDAV dialog uses the injected table and UI capabilities");
+assertIncludes(settingBackupSource, "openFileListDialog(files, client, label, folderName, showDiffPreviewFn, dialog, dependencies)", "WebDAV dialog uses the injected table and UI capabilities");
 assertIncludes(settingsServiceSource, 'this.getRuntimeService("host")?.getListSelectors?.()', "settings selector compatibility must use the injected Host port");
 assertIncludes(registry, 'manifest("settings.core", "settings-entry", null', "settings Contribution is Feature-owned");
 assertIncludes(registry, 'new SettingsCompatibilityBean(', "SettingPlugin remains available through a compatibility bean");

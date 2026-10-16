@@ -77,6 +77,15 @@ export class SettingsService extends EventTarget {
         return this._enqueue(() => this._withSettingLock(() => this._updateWithoutLock(mutator, storageKey)));
     }
 
+    /** Run a related operation with a fresh snapshot under the existing settings queue/lock. Inside, use updateWithoutLock instead of re-entering the queue. @template T @param {() => Promise<T> | T} operation @param {string} [storageKey] @returns {Promise<T>} */
+    async runExclusive(operation, storageKey = "setting") {
+        if (typeof operation !== "function") throw new TypeError("Settings operation must be a function");
+        return this._enqueue(() => this._withSettingLock(async () => {
+            await this._readSnapshot(storageKey);
+            return operation();
+        }));
+    }
+
     /** Only for a caller already holding StorageMutationCoordinator's lock. */
     /** @param {(draft: Record<string, unknown>) => unknown} mutator @param {string} [storageKey] */
     async updateWithoutLock(mutator, storageKey = "setting") {

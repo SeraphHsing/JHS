@@ -21,8 +21,14 @@ async function fixture() {
     const settings = new SettingsService(storage);
     await settings.load();
     let password = "old-password";
-    const credential = { get: vi.fn(async () => password), set: vi.fn(async (_key, value) => { password = value; }) };
-    const webdav = new WebDavService({}, credential, settings);
+    const credential = { get: vi.fn(async () => password), readEntry: vi.fn(async () => ({ exists: true, value: password })), set: vi.fn(async (_key, value) => { password = value; }) };
+    credential.replaceWithRollback = async (key, value, operation) => {
+        const previous = password;
+        await credential.set(key, value);
+        try { return await operation(); }
+        catch (error) { await credential.set(key, previous); throw error; }
+    };
+    const webdav = new WebDavService({}, credential, settings, "https://javdb.com");
     const utilities = { q: vi.fn((_position, _message, accept) => accept()) };
     const dependencies = { jquery: $, document, settings, webdav, utilities, movie: { externalSiteOrigin: () => "https://example.test", providerOrigin: () => "https://example.test" }, legacyStorage: { getReviewFilterKeywordList: async () => [], getTitleFilterKeyword: async () => [] }, events: { emit: vi.fn() }, logger: { error: vi.fn() } };
     document.body.innerHTML = buildSettingDialogHtml();
@@ -44,7 +50,8 @@ describe("full settings WebDAV save transaction", () => {
         await expect(saveSettingForm(test.dependencies, test.root)).rejects.toBe(error);
         expect(test.storage.set).toHaveBeenCalledOnce();
         expect(test.password()).toBe("old-password");
-        expect(test.credential.set.mock.calls).toEqual([["jhs_webdav_password", "new-password"], ["jhs_webdav_password", "old-password"]]);
+        const key = "jhs_webdav_password:origin:https%3A%2F%2Fjavdb.com";
+        expect(test.credential.set.mock.calls).toEqual([[key, "new-password"], [key, "old-password"]]);
         expect(test.stored.setting).toEqual(test.initial);
         expect(test.settings.snapshot()).toEqual(test.initial);
         expect(test.root.data("jhsDirtyManualKeys")).toEqual(new Set(["reviewCount", "webDavUrl", "webDavUsername", "webDavPassword"]));
@@ -95,6 +102,24 @@ describe("full settings WebDAV save transaction", () => {
         expect(test.storage.set).toHaveBeenCalledOnce();
         expect(test.stored.setting).toEqual({ ...test.initial, webDavUsername: "updated-user" });
         expect(test.credential.set).not.toHaveBeenCalled();
+    });
+
+    it("keeps other settings editable and permits an explicit password repair after credential loading fails", async () => {
+        const test = await fixture();
+        test.credential.readEntry.mockRejectedValue(new Error("damaged record"));
+        await expect(loadSettingForm(test.dependencies, test.root)).resolves.toBeUndefined();
+        expect(test.root.find("#webDavPassword").val()).toBe("");
+        expect(test.root.find("#webDavPassword").attr("aria-invalid")).toBe("true");
+        expect(test.root.find("#jhs-webdav-credential-error").text()).toContain("重新输入密码并保存");
+        test.root.find("#reviewCount").val("40").trigger("change");
+        await expect(saveSettingForm(test.dependencies, test.root)).resolves.toEqual({ ok: true });
+        expect(test.credential.set).not.toHaveBeenCalled();
+        expect(test.password()).toBe("old-password");
+        test.root.find("#webDavPassword").val("recovered-password").trigger("change");
+        await expect(saveSettingForm(test.dependencies, test.root)).resolves.toEqual({ ok: true });
+        expect(test.password()).toBe("recovered-password");
+        expect(test.root.find("#jhs-webdav-credential-error")).toHaveLength(0);
+        expect(test.root.find("#webDavPassword").attr("aria-invalid")).toBeUndefined();
     });
 
     it("settles WebDAV authorization as canceled when Escape closes the injected service dialog", async () => {

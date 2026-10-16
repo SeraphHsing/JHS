@@ -44,6 +44,8 @@ export class SettingPlugin {
         this._cloudLoginScope = null;
         this._desktopQuickSurfaces = new Map();
         this._quickSettingInstance = null;
+        this._settingsDialog = null;
+        this._settingsDialogOpenPromise = null;
         /** @type {any} */ this.featureExternalSitesAdapter = null;
         /** @type {any} */ this.featureCoverButtonAdapter = null;
         i(this, "folderName", "JHS-数据备份"), i(this, "resourceSettings", new ResourceSettingsService()), i(this, "pendingCarImport", null), i(this, "taskStatusUnsubscribe", null),
@@ -107,6 +109,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
     /** @param {any} adapter */
     detachFeatureCoverButtonAdapter(adapter) { if (this.featureCoverButtonAdapter === adapter) this.featureCoverButtonAdapter = null; }
     getFormDependencies() {
+        const instance = this._settingsDialog;
         return Object.freeze({
             otherSite: this.featureExternalSitesAdapter, listPage: this.getOptionalDependency("ListPagePlugin"),
             newVideo: this.getOptionalDependency("NewVideoPlugin"), blacklist: this.getOptionalDependency("BlacklistPlugin"),
@@ -115,7 +118,10 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             webdav: this.getRuntimeService("webdav"),
             jquery: this.jquery, document: this.document, legacyStorage: this.legacyStorage,
             utilities: this.utils, events: this.events, notifications: this.notifications, logger: this.logger, domUi: this.domUi, window: this.window,
-            getScope: this.getRuntimeService("scope"),
+            root: instance?.root,
+            scope: instance?.scope,
+            isActive: () => !instance || this._settingsDialog === instance && !instance.scope.disposed,
+            getScope: instance ? async () => instance.scope : this.getRuntimeService("scope"),
         });
     }
     async initCss() {
@@ -292,57 +298,90 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         }
     }
     async openSettingDialog(e = "appearance-panel", t) {
+        if (this._settingScope?.disposed) return;
+        const current = this._settingsDialog;
+        if (current && !current.scope.disposed) {
+            current.panel = e;
+            if (current.root?.[0]?.isConnected) {
+                this.activateSettingPanel(current.root, e);
+                current.root.find(".side-menu-item.active")[0]?.focus();
+                t?.();
+            }
+            return this._settingsDialogOpenPromise;
+        }
+        const instance = { panel: e, root: null, id: null, generation: ++this._settingsDialogGeneration, scope: new LifecycleScope("full-settings") };
+        this._settingsDialog = instance;
+        const releaseParent = this._settingScope?.addCleanup(() => {
+            if (instance.scope.disposed) return;
+            instance.scope.dispose();
+            if (instance.id != null) this.getRuntimeService("dialog").close(instance.id);
+            if (this._settingsDialog === instance) this._settingsDialog = null;
+        });
+        instance.scope.addCleanup(() => releaseParent?.());
+        const pending = this.loadSettingDialog(instance, t);
+        this._settingsDialogOpenPromise = pending;
+        try { return await pending; }
+        catch (error) { instance.scope.dispose(); if (this._settingsDialog === instance) this._settingsDialog = null; throw error; }
+        finally { if (this._settingsDialogOpenPromise === pending) this._settingsDialogOpenPromise = null; }
+    }
+    async loadSettingDialog(instance, t) {
         this._quickSettingInstance?.close(!1);
         for (const surface of this._desktopQuickSurfaces.values()) surface.close();
         closeOwnedPopover(this.document);
         await this.getRuntimeService("settings").waitForIdle();
         const [templates, panels] = await Promise.all([import("./setting-templates.js"), import("./setting-panels.js")]);
+        if (instance.scope.disposed || this._settingsDialog !== instance) return;
         this._settingPanels = panels;
         this._settingTemplates = templates;
-        const initialPanel = e;
-        const s = templates.buildSettingDialogHtml(e, this.cacheItems, this.getRuntimeService("settingsRegistry"));
-        this.getRuntimeService("dialog").open({
+        const s = templates.buildSettingDialogHtml(instance.panel, this.cacheItems, this.getRuntimeService("settingsRegistry"));
+        instance.id = this.getRuntimeService("dialog").open({
             type: 1,
             title: "设置",
             content: s,
             ui: { size: "lg", body: "scroll", focus: "caller" }, area: this.utils.getDialogArea("lg"),
             scrollbar: !1,
             success: async (e, n) => {
-                const generation = ++this._settingsDialogGeneration;
+                if (instance.scope.disposed || this._settingsDialog !== instance) return;
+                const generation = instance.generation;
                 this.pendingCarImport = null;
                 this._carImportRevision++;
                 const layerRoot = this.jquery(e);
+                instance.root = layerRoot;
                 this._settingsFocusCleanup?.();
                 this._settingsFocusCleanup = this.utils.trapFocus(layerRoot[0], layerRoot.find(".side-menu-item.active")[0]);
+                instance.scope.addCleanup(this._settingsFocusCleanup);
                 layerRoot.data("jhsSettingsGeneration", generation);
                 layerRoot.find(".layui-layer-content").css("position", "relative");
                 this.renderTaskStatuses(layerRoot);
                 templates.injectHealthPanel(this.jquery, layerRoot), templates.injectPluginMgmtPanel(this.jquery, layerRoot), templates.injectSnapshotPanel(this.jquery, layerRoot), templates.injectNetworkPanel(this.jquery, layerRoot), templates.injectResourceSourcesPanel(this.jquery, layerRoot);
                 const binding = this.hydrateLiveSettings(layerRoot);
                 this._fullSettingBinding = binding;
+                if (binding) instance.scope.addCleanup(() => binding.dispose());
                 this.bindClick(layerRoot);
                 layerRoot.find(".side-menu-item.active").attr("aria-current", "page");
                 this.utils.setupEscClose(n), t && t();
                 this.renderTaskStatuses(layerRoot), this.taskStatusUnsubscribe?.(), this.taskStatusUnsubscribe = this.events.on("task-status-changed", (() => this.renderTaskStatuses(layerRoot)));
-                this.activateSettingPanel(layerRoot, initialPanel);
+                this.activateSettingPanel(layerRoot, instance.panel);
                 const sections = await Promise.allSettled([ this.hydrateSettingForm(e, generation), this.loadResourceSettings(e, generation) ]), resourceResult = sections[1];
+                if (instance.scope.disposed || this._settingsDialog !== instance) return;
                 JhsSelect.refreshAll(e);
                 if (resourceResult.status === "rejected") {
                     this.logger.error("resource-settings 加载失败", resourceResult.reason), this.getRuntimeService("diagnostics").recordError({ source: "resource-settings", message: resourceResult.reason?.message || String(resourceResult.reason) }), this.notifications.error("资源设置加载失败，可保存其他设置");
                 }
             },
             end: () => {
+                instance.scope.dispose();
+                if (this._settingsDialog !== instance) return;
+                this._settingsDialog = null;
                 this._settingsDialogGeneration++;
                 this.pendingCarImport = null;
                 this._carImportRevision++;
                 this._cloudLoginScope?.dispose();
                 this._cloudLoginScope = null;
                 this.cancelResourceTests();
-                this._fullSettingBinding?.dispose?.();
                 this._fullSettingBinding = null;
                 this._cloudSettingBinding?.dispose?.();
                 this._cloudSettingBinding = null;
-                this._settingsFocusCleanup?.();
                 this._settingsFocusCleanup = null;
                 this.taskStatusUnsubscribe?.(), this.taskStatusUnsubscribe = null;
                 this.featureCoverButtonAdapter?.enableSvgBtn?.();
@@ -519,12 +558,14 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
             const button = this.jquery(event.currentTarget);
             if (button.data("jhsBusy") || "true" !== button.attr("data-jhs-settings-ready")) return;
             button.data("jhsBusy", !0).prop("disabled", !0).attr("aria-busy", "true");
+            const fullBinding = this._fullSettingBinding, cloudBinding = this._cloudSettingBinding;
             try {
                 // Success toast must only appear after all pending live writes on
                 // this Full settings surface have settled.
-                await this._fullSettingBinding?.flush?.({ throwOnFailure: true });
-                await this._cloudSettingBinding?.flush?.({ throwOnFailure: true });
-                const result = await saveSettingForm(this.getFormDependencies(), root);
+                await fullBinding?.flush?.({ throwOnFailure: true });
+                await cloudBinding?.flush?.({ throwOnFailure: true });
+                if (dependencies.isActive?.() === false) return;
+                const result = await saveSettingForm(dependencies, root);
                 if (result?.canceled) return;
                 try { this.notifications.ok("已保存设置"); }
                 catch (error) { try { this.logger?.warn?.("设置已保存，完成提示显示失败", error); } catch { /* committed settings win */ } }

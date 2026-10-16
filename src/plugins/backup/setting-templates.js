@@ -12,6 +12,8 @@ export function getPluginCategories() {
     /** @type {Record<string, [string, string]>} */
     const pluginMeta = {
         SettingPlugin:["设置中心","core"], StatsPlugin:["统计中心","core"], MobileBottomBarPlugin:["工具栏与移动操作","core"],
+        CompatibilityEnhancementsPlugin:["站点兼容增强","core"], Fc2NavigationPlugin:["FC2 详情导航","list"], DetailWorkspacePlugin:["详情工作区","detail"],
+        OneOneFiveMatchPlugin:["115 资源匹配","network"], UnifiedOfflinePlugin:["统一离线提交","network"],
         ListPagePlugin:["列表状态处理","list"], NavBarPlugin:[`${PRODUCT_NAMES.javdb} 导航`,"list"], BusNavBarPlugin:[`${PRODUCT_NAMES.javbus} 导航`,"list"], ListPageButtonPlugin:["列表操作","list"], HighlightMagnetPlugin:["磁力标记","list"], FoldCategoryPlugin:["分类折叠","list"], AutoPagePlugin:["自动翻页","list"], HitShowPlugin:["热播榜单","list"], TOP250Plugin:["TOP 250","list"],
         DetailPagePlugin:[`${PRODUCT_NAMES.javdb} 详情页`,"detail"], BusDetailPagePlugin:[`${PRODUCT_NAMES.javbus} 详情页`,"detail"], DetailPageButtonPlugin:["详情操作","detail"], ReviewPlugin:["评论","detail"], RelatedPlugin:["相关影片","detail"], TranslatePlugin:["标题翻译","detail"], WantAndWatchedVideosPlugin:["想看与看过","detail"],
         CoverButtonPlugin:["封面快捷操作","media"], PreviewVideoPlugin:[`${PRODUCT_NAMES.javdb} 预览视频`,"media"], BusPreviewVideoPlugin:[`${PRODUCT_NAMES.javbus} 预览视频`,"media"], ScreenShotPlugin:["剧照","media"], BusImgPlugin:[`${PRODUCT_NAMES.javbus} 图片适配`,"media"], ActressInfoPlugin:["演员资料","media"], SearchByImagePlugin:["以图搜图","media"],

@@ -273,8 +273,8 @@ test("Settings remains interactive and catalogs a disabled external-sites contri
   await expect.poll(() => page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings").snapshot().disabledPlugins)).not.toContain("OtherSitePlugin");
   await page.evaluate(() => {
     const settings = window.unsafeWindow.pluginManager.getBean("SettingPlugin").getRuntimeService("settings");
-    window.__jhsSettingsSet = settings.set.bind(settings);
-    settings.set = async () => { throw new Error("synthetic disabledPlugins write failure"); };
+    window.__jhsSettingsUpdate = settings.update.bind(settings);
+    settings.update = async () => { throw new Error("synthetic disabledPlugins write failure"); };
   });
   await externalSitesToggle.click();
   await expect(externalSitesToggle).toBeChecked();
@@ -284,7 +284,7 @@ test("Settings remains interactive and catalogs a disabled external-sites contri
 
   await page.evaluate(() => {
     const plugin = window.unsafeWindow.pluginManager.getBean("SettingPlugin");
-    plugin.getRuntimeService("settings").set = window.__jhsSettingsSet;
+    plugin.getRuntimeService("settings").update = window.__jhsSettingsUpdate;
     plugin.notifications.ok = () => { throw new Error("synthetic notification failure"); };
   });
   await externalSitesToggle.click();

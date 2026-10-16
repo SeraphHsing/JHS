@@ -13,6 +13,23 @@ function createStorage(values = {}) {
 }
 
 describe("CredentialService", () => {
+    it("distinguishes missing entries from cleared entries without hiding corrupt records", async () => {
+        const storage = createStorage(), service = new CredentialService(storage, { getItem: () => null });
+        await expect(service.readEntry("scoped-password")).resolves.toEqual({ exists: false, value: "" });
+        await service.set("scoped-password", "");
+        await expect(service.readEntry("scoped-password")).resolves.toEqual({ exists: true, value: "" });
+        storage.data.set("scoped-password", { schema: 2, id: "corrupt", ciphertext: "invalid" });
+        await expect(service.readEntry("scoped-password")).rejects.toThrow();
+        await expect(service.get("scoped-password")).resolves.toBe("");
+    });
+
+    it("propagates entry storage errors instead of presenting a missing credential", async () => {
+        const storage = createStorage(), failure = new Error("read unavailable");
+        storage.getValue.mockImplementation(() => { throw failure; });
+        const service = new CredentialService(storage, { getItem: () => null });
+        await expect(service.readEntry("password")).rejects.toBe(failure);
+    });
+
     it("keeps legacy ciphertext and its key when the destination becomes unreadable before cleanup", async () => {
         const source = await encryptData("old-password", "old-key"), legacy = new Map([[CREDENTIAL_KEYS.installationSecret, "old-key"]]);
         const settings = { snapshot: () => ({ webDavPassword: source }) }, storage = createStorage();

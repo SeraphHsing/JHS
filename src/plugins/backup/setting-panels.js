@@ -5,13 +5,23 @@ import { escapeHtml } from "../../core/constants.js";
 import { disabledIdForPlugin, parseDisabledPlugins } from "../../core/legacy-plugin-contributions.js";
 import { getPluginCategories } from "./setting-templates.js";
 import { createJhsTable } from "../../ui/table/create-jhs-table.js";
+import { LifecycleScope } from "../../core/lifecycle-scope.js";
+import { formatUiDateTime } from "../../core/ui-date-time.js";
 
 /** @typedef {any} DiagnosticsHandle */
 /** @typedef {any} DialogHandle */
 /** @typedef {{ state?: string, cooldownMs?: number, openTime?: number, failCount?: number }} CircuitBreakerRecord */
 /** @typedef {{ count: number, errors: number, lastUsed?: number }} DomainStatsRecord */
 /** @typedef {{ message: string, count: number }} HealthIssue */
-/** @typedef {{ jquery: (value: any) => any, legacyStorage: any, utilities: any, notifications: any, logger: any, domUi: any, window: Window }} SettingsUiDependencies */
+/** @typedef {{ jquery: (value: any) => any, legacyStorage: any, utilities: any, notifications: any, logger: any, domUi: any, window: Window, root?: any, scope?: LifecycleScope, isActive?: () => boolean }} SettingsUiDependencies */
+
+/** Restrict panel selectors to the settings instance that requested them. @param {SettingsUiDependencies} dependencies */
+function panelQuery(dependencies) {
+    return (/** @type {any} */ value) => dependencies.root && typeof value === "string" && !value.trimStart().startsWith("<")
+        ? dependencies.jquery(dependencies.root).find(value) : dependencies.jquery(value);
+}
+/** @type {WeakMap<HTMLElement, {generation: number, table: any}>} */
+const snapshotPanels = new WeakMap();
 
 /** Keep a completed restore or import distinct from notification and reload failures. */
 /** @param {SettingsUiDependencies} dependencies @param {string} message */
@@ -29,8 +39,9 @@ function finishCommittedDataChange(dependencies, message) {
 /** Render the network/external requests panel: circuit breaker status, domain stats. */
 /** @param {DiagnosticsHandle} diagnostics @param {SettingsUiDependencies} dependencies */
 export async function renderNetworkPanel(diagnostics, dependencies) {
-    const { jquery: $, legacyStorage: storageManager, notifications: show } = dependencies;
+    const { legacyStorage: storageManager, notifications: show } = dependencies, $ = panelQuery(dependencies);
     const network = diagnostics.getNetworkDiagnostics(), e = /** @type {Record<string, CircuitBreakerRecord>} */ (network.circuitBreakers), t = /** @type {Record<string, DomainStatsRecord>} */ (network.domainStats), n = await storageManager.getSetting("circuitBreakerThreshold", 3), a = await storageManager.getSetting("circuitBreakerCooldown", 6e4);
+    if (dependencies.isActive?.() === false) return;
     // 仅首次水合：切换面板后重渲染不得覆盖用户尚未保存的编辑
     $("#circuitBreakerThreshold").each(((/** @type {number} */ _i, /** @type {HTMLInputElement} */ element) => {
         element.dataset.jhsHydrated || (element.value = String(n), element.dataset.jhsHydrated = "1");
@@ -50,7 +61,7 @@ export async function renderNetworkPanel(diagnostics, dependencies) {
     if (s.length) {
         let e = '<table class="jhs-data-table"><tr><th>域名</th><th class="is-right">请求数</th><th class="is-right">错误数</th><th class="is-center">最后使用</th></tr>';
         for (const [t, n] of s) {
-            const a = n.lastUsed ? new Date(n.lastUsed).toLocaleTimeString() : "-";
+            const a = formatUiDateTime(n.lastUsed);
             e += `<tr><td>${escapeHtml(t)}</td><td class="is-right">${n.count}</td><td class="is-right ${n.errors > 0 ? "is-danger" : ""}">${n.errors}</td><td class="is-center">${a}</td></tr>`;
         }
         e += '</table>', e += `<p class="jhs-caption">共 ${s.length} 个域名</p>`, $("#domain-stats-table").html(e);
@@ -68,17 +79,34 @@ export async function renderNetworkPanel(diagnostics, dependencies) {
 /** Render the snapshot list as a Tabulator table with restore/download/delete actions. */
 /** @param {SettingsUiDependencies} dependencies */
 export async function renderSnapshotPanel(dependencies) {
-    const { jquery: $, legacyStorage: storageManager, utilities: utils, notifications: show, logger: clog, domUi, window } = dependencies;
-    const loading = () => domUi.loading();
+    const { legacyStorage: storageManager, utilities: utils, notifications: show, logger: clog, domUi, window } = dependencies, $ = panelQuery(dependencies);
+    const loading = () => {
+        const handle = domUi.loading(), release = dependencies.scope?.addCleanup(() => handle.close());
+        return { close: () => release ? release() : handle.close() };
+    };
+    const host = $("#snapshot-list")[0];
+    if (!host || dependencies.isActive?.() === false) return;
+    let state = snapshotPanels.get(host);
+    if (!state) {
+        state = { generation: 0, table: null };
+        snapshotPanels.set(host, state);
+        const ownedState = state;
+        dependencies.scope?.addCleanup(() => { ownedState.generation++; ownedState.table?.destroy?.(); snapshotPanels.delete(host); });
+    }
+    const generation = ++state.generation;
+    const currentState = state;
+    const active = () => dependencies.isActive?.() !== false && host.isConnected && currentState.generation === generation;
     const e = await storageManager.getSnapshotList(), t = {
         "manual": "手动创建",
         "auto-import": "导入前自动",
         "auto-repair": "修复前自动",
         "auto-restore": "恢复前自动"
     };
+    if (dependencies.isActive?.() === false || !host.isConnected || state.generation !== generation) return;
+    state.table?.destroy?.(); state.table = null;
     if (0 === e.length) return void $("#snapshot-list").html(`<div class="jhs-empty-note">${getIcon("inbox")}<span>暂无快照</span></div>`);
     $("#snapshot-list").find(".tabulator").length && $("#snapshot-list").empty();
-    const n = createJhsTable(domUi.tableConstructor, "#snapshot-list", {
+    const n = createJhsTable(domUi.tableConstructor, host, {
         pagination: !1,
         layout: "fitColumns",
         placeholder: "暂无数据",
@@ -96,31 +124,37 @@ export async function renderSnapshotPanel(dependencies) {
                         const t = e.getElement().querySelector(".snap-restore"), a = e.getElement().querySelector(".snap-download"), s = e.getElement().querySelector(".snap-delete");
                         t && t.addEventListener("click", (async (/** @type {MouseEvent} */ e) => {
                             utils.q(e, `恢复快照“${escapeHtml(i.name)}”？当前数据将自动备份`, (async () => {
+                                if (!active()) return;
                                 let e = loading();
                                 try {
                                     await storageManager.restoreSnapshot(i.id);
                                 } catch (t) {
+                                    if (!active()) return;
                                     try { clog.error(t); } catch { /* preserve the restore error */ }
                                     try { show.error("快照恢复失败，请重试"); } catch { /* preserve the restore error */ }
                                     return;
                                 } finally { try { e.close(); } catch (t) { try { clog.warn("恢复操作加载层关闭失败", t); } catch { /* committed data wins */ } } }
-                                finishCommittedDataChange(dependencies, "已恢复，页面即将刷新");
+                                if (active()) finishCommittedDataChange(dependencies, "已恢复，页面即将刷新");
                             }), null, { confirmText: "恢复", cancelText: "取消" });
                         })), a && a.addEventListener("click", (async (/** @type {MouseEvent} */ e) => {
+                            if (!active()) return;
                             let t = loading();
                             try {
                                 const e = await storageManager.getSnapshot(i.id);
+                                if (!active()) return;
                                 if (!e) throw new Error("快照不存在");
                                 utils.download(JSON.stringify(e.data), `snapshot_${String(i.name || "snapshot").replace(/[\\/:*?"<>|]/g, "_")}.json`), show.ok("已下载快照");
                             } catch (n) { clog.error("快照下载失败", n), show.error("快照下载失败，请重试"); } finally { t.close(); }
                         })), s && s.addEventListener("click", (async (/** @type {MouseEvent} */ e) => {
                             utils.q(e, `删除快照“${escapeHtml(i.name)}”？此操作无法撤销`, (async () => {
+                                if (!active()) return;
                                 try { await storageManager.deleteSnapshot(i.id); }
                                 catch (t) {
                                     try { clog.error(t); } catch { /* preserve the deletion error */ }
                                     try { show.error("快照删除失败，请重试"); } catch { /* preserve the deletion error */ }
                                     return;
                                 }
+                                if (!active()) return;
                                 try { show.ok("已删除快照"); }
                                 catch (t) { try { clog.warn("快照已删除，但完成提示失败", t); } catch { /* committed deletion wins */ } }
                                 try { await renderSnapshotPanel(dependencies); }
@@ -135,11 +169,13 @@ export async function renderSnapshotPanel(dependencies) {
             }
         ]
     });
+    state.table = n;
 }
 
 /** Show a data diff preview dialog before importing data. */
 /** @param {any} e @param {any} t @param {any} n @param {DialogHandle} dialog @param {SettingsUiDependencies} dependencies */
 export function showDiffPreview(e, t, n = null, dialog, dependencies) {
+    if (dependencies.isActive?.() === false) return;
     const { legacyStorage: storageManager, utilities: utils, notifications: show, logger: clog, domUi, window } = dependencies;
     const loading = () => domUi.loading();
     /** @type {Record<string, string>} */
@@ -168,6 +204,11 @@ export function showDiffPreview(e, t, n = null, dialog, dependencies) {
     s += '<div class="jhs-warning-note">导入将覆盖当前数据，建议先创建快照备份</div>';
     s += '</div>';
     const hasChanges = i.length > 0;
+    const scope = new LifecycleScope("backup-diff-preview");
+    let busy = false;
+    /** @type {number | null} */ let index = null;
+    const releaseParent = dependencies.scope?.addCleanup(() => { if (index != null) dialog.close(index); scope.dispose(); });
+    scope.addCleanup(() => releaseParent?.());
     const r = dialog.open({
         type: 1,
         title: "数据差异预览",
@@ -175,29 +216,38 @@ export function showDiffPreview(e, t, n = null, dialog, dependencies) {
         area: utils.getResponsiveArea(["700px", "auto"]),
         btn: hasChanges ? ["导入", "取消"] : ["关闭"],
         anim: -1,
+        end: () => { index = null; scope.dispose(); },
         yes: async (/** @type {number} */ s) => {
             if (!hasChanges) return void dialog.close(s);
+            if (busy || scope.disposed || dependencies.isActive?.() === false) return;
+            busy = true;
             let o = loading();
+            const releaseLoading = scope.addCleanup(() => o.close());
             try {
                 await storageManager.createSnapshot("导入前自动备份", "auto-import");
+                if (scope.disposed || dependencies.isActive?.() === false) return;
                 if (!n && !t) return;
                 await storageManager.importData(n || t);
             } catch (r) {
+                if (scope.disposed || dependencies.isActive?.() === false) return;
                 try { clog.error(r); } catch { /* preserve the import error */ }
                 try { show.error("数据导入失败，请检查文件"); } catch { /* preserve the import error */ }
                 return;
-            } finally { try { o.close(); } catch (r) { try { clog.warn("导入操作加载层关闭失败", r); } catch { /* committed data wins */ } } }
+            } finally { busy = false; try { releaseLoading(); } catch (r) { try { clog.warn("导入操作加载层关闭失败", r); } catch { /* committed data wins */ } } }
+            if (scope.disposed || dependencies.isActive?.() === false) return;
             finishCommittedDataChange(dependencies, "已导入，页面即将刷新");
         }
     });
+    index = r;
 }
 
 /** Render the plugin management panel: categorized plugin list, timing, errors, cache stats. */
 /** @param {DiagnosticsHandle} diagnostics @param {any} settings @param {SettingsUiDependencies} dependencies */
 export async function renderPluginMgmtPanel(diagnostics, settings, dependencies) {
-    const { jquery: $, legacyStorage: storageManager, notifications: show, logger: clog } = dependencies;
+    const { legacyStorage: storageManager, notifications: show, logger: clog } = dependencies, $ = panelQuery(dependencies);
     const diagnosticSnapshot = diagnostics.exportSnapshot();
     const disabled = parseDisabledPlugins(await storageManager.getSetting("disabledPlugins", "[]"));
+    if (dependencies.isActive?.() === false) return;
     const configuredNames = (diagnosticSnapshot.legacyPluginDescriptors || []).map((/** @type {{name: string}} */ item) => item.name);
     const allNames = [...new Set([...configuredNames, ...(diagnosticSnapshot.legacyPlugins || [])])];
     const effectiveDisabledNames = (/** @type {string[]} */ values) => {
@@ -215,7 +265,7 @@ export async function renderPluginMgmtPanel(diagnostics, settings, dependencies)
         html += `<h4 class="jhs-plugin-group__title">${escapeHtml(cat.label)}</h4>`;
         for (const pName of visiblePlugins) {
             const isCore = pluginDescriptors.get(pName)?.disableable === false;
-            const isDisabled = disabled.includes(disabledIdForPlugin(pName));
+            const isDisabled = disabled.includes(pName) || disabled.includes(disabledIdForPlugin(pName));
             const productName = pluginMeta[pName]?.[0] || pName;
             html += '<div class="jhs-plugin-row">';
             html += `<span class="jhs-plugin-copy" title="内部插件名：${escapeHtml(pName)}"><strong>${escapeHtml(productName)}</strong></span>`;
@@ -237,31 +287,32 @@ export async function renderPluginMgmtPanel(diagnostics, settings, dependencies)
         const target = $(e.target);
         const name = target.data("plugin");
         const nextEnabled = target.is(":checked");
-        const previousEnabled = !nextEnabled;
-        let list = parseDisabledPlugins(await storageManager.getSetting("disabledPlugins", "[]"));
         const disabledId = disabledIdForPlugin(name);
-        if (nextEnabled) {
-            list = list.filter(x => x !== name && x !== disabledId);
-        } else {
-            if (!list.includes(disabledId)) list.push(disabledId);
-        }
-        if (!settings) throw new Error("SettingsService is unavailable");
         const renderState = (/** @type {string[]} */ disabledList) => {
             const currentDisabled = effectiveDisabledNames(disabledList);
             $("#pm-total").text(allNames.length);
             $("#pm-enabled").text(allNames.length - currentDisabled.length);
             $("#pm-disabled").text(currentDisabled.length);
         };
-        renderState(list);
+        target.prop("disabled", true).attr("aria-busy", "true");
         try {
-            await settings.set("disabledPlugins", JSON.stringify(list));
+            if (!settings?.update) throw new Error("SettingsService is unavailable");
+            const snapshot = await settings.update((/** @type {Record<string, unknown>} */ draft) => {
+                let list = parseDisabledPlugins(draft.disabledPlugins);
+                if (nextEnabled) list = list.filter(id => id !== name && id !== disabledId);
+                else if (!list.includes(disabledId)) list.push(disabledId);
+                draft.disabledPlugins = JSON.stringify(list);
+            });
+            if (dependencies.isActive?.() === false) return;
+            renderState(parseDisabledPlugins(snapshot.disabledPlugins));
         } catch (error) {
-            target.prop("checked", previousEnabled);
-            const rollbackList = parseDisabledPlugins(await storageManager.getSetting("disabledPlugins", "[]"));
+            if (dependencies.isActive?.() === false) return;
+            const rollbackList = parseDisabledPlugins(settings?.snapshot?.().disabledPlugins ?? disabled);
+            target.prop("checked", !rollbackList.includes(name) && !rollbackList.includes(disabledId));
             renderState(rollbackList);
             clog.error("功能状态保存失败，已恢复", error), show.error("功能设置保存失败，已恢复");
             return;
-        }
+        } finally { target.prop("disabled", false).removeAttr("aria-busy"); }
         try {
             show.ok(`功能已${nextEnabled ? "开启" : "关闭"}，刷新后生效`);
         } catch (error) {
@@ -314,12 +365,13 @@ export async function renderPluginMgmtPanel(diagnostics, settings, dependencies)
 /** Render the data health check panel with totals and issue breakdown. */
 /** @param {SettingsUiDependencies} dependencies */
 export async function renderDataHealthPanel(dependencies) {
-    const { jquery: $, legacyStorage: storageManager, logger: clog } = dependencies;
+    const { legacyStorage: storageManager, logger: clog } = dependencies, $ = panelQuery(dependencies);
     const e = $("#health-data-display");
     if (!e.length) return;
     e.text("体检中…");
     try {
         const t = await storageManager.inspectDataHealth(), n = t.fixable.reduce(((/** @type {number} */ e, /** @type {HealthIssue} */ t) => e + t.count), 0), a = t.readonly.reduce(((/** @type {number} */ e, /** @type {HealthIssue} */ t) => e + t.count), 0), i = (/** @type {HealthIssue[]} */ t) => t.length ? t.map((e => `<li><strong>${escapeHtml(e.message)}</strong>：${e.count}</li>`)).join("") : "<li>无</li>";
+        if (dependencies.isActive?.() === false || !e[0]?.isConnected) return;
         e.html(`
                 <div class="jhs-summary-grid">
                     <div>番号记录：<strong>${t.totals.carList}</strong></div>

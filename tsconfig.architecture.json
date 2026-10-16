@@ -55,6 +55,7 @@
     "src/core/storage-index.js",
     "src/core/theme.js",
     "src/core/ui-primitives.js",
+    "src/core/ui-date-time.js",
     "src/core/ui-geometry.js",
     "src/core/owned-popover.js",
     "src/core/task-status-view.js",

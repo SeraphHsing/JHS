@@ -1,8 +1,15 @@
 // @ts-check
 
 import { JhsError } from "../core/jhs-error.js";
+import { CREDENTIAL_KEYS } from "./credential-service.js";
 
 const DOWNLOAD_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** @param {string} name */
+function encodeBackupFileName(name) {
+    if (typeof name !== "string" || !name || name === "." || name === ".." || /[/\\]/.test(name)) throw new JhsError("INVALID_URL", "备份文件名必须是单个有效文件名", { source: "WebDavClient" });
+    return encodeURIComponent(name);
+}
 
 export class WebDavClient {
     /** @param {import("./http-service.js").HttpService} http @param {string} davUrl @param {string} username @param {string} password */
@@ -41,6 +48,7 @@ export class WebDavClient {
     }
     /** @param {string} folder @param {string} name @param {string} content @param {(event: {stage: string, result: string, durationMs: number, bytes?: number, code?: string, status?: number, timeoutMs: number}) => void} [onStage] */
     async backup(folder, name, content, onStage) {
+        const encodedName = encodeBackupFileName(name);
         /** @template T @param {string} stage @param {() => Promise<T>} action @param {number} [bytes] @returns {Promise<T>} */
         const runStage = async (stage, action, bytes) => {
             const startedAt = performance.now();
@@ -60,7 +68,7 @@ export class WebDavClient {
             }
         };
         await runStage("建目录", () => this.ensureFolder(folder));
-        await runStage("上传", () => this.request("PUT", `${folder}/${name}`, { "Content-Type": "text/plain" }, content), content.length);
+        await runStage("上传", () => this.request("PUT", `${folder}/${encodedName}`, { "Content-Type": "text/plain" }, content), content.length);
     }
     /** @param {string} folder */
     async getFileList(folder) {
@@ -74,12 +82,12 @@ export class WebDavClient {
         return files.reverse();
     }
     /** @param {string} name */
-    async deleteFile(name) { await this.request("DELETE", `${this.folderName}/${encodeURI(name)}`, { "Cache-Control": "no-cache" }); }
+    async deleteFile(name) { await this.request("DELETE", `${this.folderName}/${encodeBackupFileName(name)}`, { "Cache-Control": "no-cache" }); }
     /** @param {string} folder */
     async getBackupList(folder) { this.folderName = folder; await this.ensureFolder(folder); return this.getFileList(folder); }
     /** @param {string} name */
     async getFileContent(name) {
-        let url = new URL(`${this.folderName}/${name}`.replace(/^\/+/, ""), this.baseUrl), anonymous = false;
+        let url = new URL(`${this.folderName}/${encodeBackupFileName(name)}`.replace(/^\/+/, ""), this.baseUrl), anonymous = false;
         const visited = new Set();
         for (let redirects = 0; ; redirects++) {
             url.hash = "";
@@ -103,32 +111,58 @@ export class WebDavClient {
 }
 
 export class WebDavService {
-    /** @param {import("./http-service.js").HttpService} http @param {import("./credential-service.js").CredentialService} [credential] @param {import("./settings-service.js").SettingsService} [settings] */
-    constructor(http, credential = undefined, settings = undefined) { this.http = http; this.credential = credential; this.settings = settings; }
+    /** @param {import("./http-service.js").HttpService} http @param {import("./credential-service.js").CredentialService} [credential] @param {import("./settings-service.js").SettingsService} [settings] @param {string} [pageOrigin] */
+    constructor(http, credential = undefined, settings = undefined, pageOrigin = globalThis.location?.origin) {
+        this.http = http; this.credential = credential; this.settings = settings;
+        const origin = pageOrigin ? new URL(pageOrigin).origin : null;
+        this.passwordKey = origin && origin !== "null" ? `${CREDENTIAL_KEYS.webDavPassword}:origin:${encodeURIComponent(origin)}` : null;
+    }
     /** @param {{url: string, username: string, password: string}} config */
     createClient(config) { return new WebDavClient(this.http, config.url, config.username, config.password); }
-    /** Return the installation-local profile without exposing the encrypted password. */
+    /** Read the site-local profile in the same queue as profile saves. */
     async getProfile() {
+        return this.settings ? this.settings.runExclusive(() => this.readProfileWithoutLock()) : this.readProfileWithoutLock();
+    }
+    /** Caller holds the settings lock; never re-enter getProfile/update here. */
+    async readProfileWithoutLock() {
         const settings = this.settings?.snapshot?.() || {};
-        const password = this.credential ? await this.credential.get("jhs_webdav_password") : "";
+        let password = "";
+        if (this.credential) {
+            if (!this.passwordKey) throw new Error("无法确定 WebDAV 所属站点，请重新打开设置");
+            try {
+                const entry = await this.credential.readEntry(this.passwordKey);
+                password = entry.value;
+                if (!entry.exists) {
+                    const legacy = await this.credential.readEntry(CREDENTIAL_KEYS.webDavPassword);
+                    if (legacy.exists) password = await this.credential.replaceWithRollback(this.passwordKey, legacy.value, async () => legacy.value);
+                }
+            } catch (cause) {
+                throw Object.assign(new Error("此站点 WebDAV 密码无法读取，请重新输入密码并保存", { cause }), { code: "WEBDAV_CREDENTIAL_UNREADABLE" });
+            }
+        }
         return { url: String(settings.webDavUrl || ""), username: String(settings.webDavUsername || ""), password };
     }
-    /** Atomically coordinate the GM credential write with the settings update. @param {Record<string, any>} [patch] @param {(draft: Record<string, unknown>) => unknown} [updateSettings] */
+    /** Serialize site-local credential/settings writes and rollback under their shared lock. @param {Record<string, any>} [patch] @param {(draft: Record<string, unknown>) => unknown} [updateSettings] */
     async saveProfile(patch = {}, updateSettings) {
         if (!this.settings || !this.credential) throw new Error("WebDAV 配置服务未初始化");
         if (updateSettings != null && typeof updateSettings !== "function") throw new TypeError("WebDAV settings updater must be a function");
-        const previous = /** @type {{password: string}} */ (await this.getProfile());
-        const passwordChanged = Object.prototype.hasOwnProperty.call(patch, "password");
-        if (passwordChanged) await /** @type {any} */ (this.credential).set("jhs_webdav_password", String(patch.password || ""));
-        try {
-            await this.settings.update((draft) => {
-                for (const key of ["url", "username"]) if (Object.prototype.hasOwnProperty.call(patch, key)) draft[key === "url" ? "webDavUrl" : "webDavUsername"] = String(patch[key] || "");
-                return updateSettings?.(draft);
-            });
-        } catch (error) {
-            if (passwordChanged) await /** @type {any} */ (this.credential).set("jhs_webdav_password", previous.password);
-            throw error;
-        }
-        return this.getProfile();
+        const settings = this.settings, credential = this.credential;
+        return settings.runExclusive(async () => {
+            const passwordChanged = Object.prototype.hasOwnProperty.call(patch, "password");
+            const password = passwordChanged ? String(patch.password || "") : (await this.readProfileWithoutLock()).password;
+            const persist = async () => {
+                await settings.updateWithoutLock((draft) => {
+                    for (const key of ["url", "username"]) if (Object.prototype.hasOwnProperty.call(patch, key)) draft[key === "url" ? "webDavUrl" : "webDavUsername"] = String(patch[key] || "");
+                    return updateSettings?.(draft);
+                });
+                const saved = settings.snapshot();
+                return { url: String(saved.webDavUrl || ""), username: String(saved.webDavUsername || ""), password };
+            };
+            if (passwordChanged) {
+                if (!this.passwordKey) throw new Error("无法确定 WebDAV 所属站点，请重新打开设置");
+                return credential.replaceWithRollback(this.passwordKey, password, persist);
+            }
+            return persist();
+        });
     }
 }

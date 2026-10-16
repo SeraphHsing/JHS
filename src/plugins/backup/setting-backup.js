@@ -5,12 +5,13 @@ import { escapeHtml } from "../../core/constants.js";
 import { decryptCredential, decryptPortableBackup, encryptPortableBackup } from "../../core/credential-crypto.js";
 import { createJhsTable } from "../../ui/table/create-jhs-table.js";
 import { LifecycleScope } from "../../core/lifecycle-scope.js";
+import { formatUiDateTime } from "../../core/ui-date-time.js";
 
 /** @typedef {{ name: string, size: number, createTime: string | number, fileId: string }} BackupFile */
 /** @typedef {(diff: any, current: any, imported: any) => void} ShowDiffPreview */
 /** @typedef {any} WebDavHandle */
 /** @typedef {any} DialogHandle */
-/** @typedef {{jquery: (value: any) => any, document: Document, legacyStorage: any, utilities: any, notifications: any, logger: any, domUi: any, window: Window & typeof globalThis, getScope?: () => Promise<LifecycleScope>}} BackupUiDependencies */
+/** @typedef {{jquery: (value: any) => any, document: Document, legacyStorage: any, utilities: any, notifications: any, logger: any, domUi: any, window: Window & typeof globalThis, getScope?: () => Promise<LifecycleScope>, scope?: LifecycleScope, isActive?: () => boolean}} BackupUiDependencies */
 /** @param {unknown} error */
 function backupErrorDetails(error) {
     const candidate = /** @type {any} */ (error);
@@ -119,32 +120,37 @@ export async function backupDataByWebDav(folderName, webdavService, dependencies
     const loading = () => domUi.loading();
     const logStage = (/** @type {{stage: string, result: string, durationMs: number, bytes?: number, code?: string, status?: number, timeoutMs?: number}} */ event) => logBackupStage(event, clog);
     const r = loading();
+    const releaseLoading = dependencies.scope?.addCleanup(() => r.close());
     const startedAt = window.performance.now();
     let result = "error", bytes;
     try {
         const t = await measureBackupStage("读取凭据", () => resolveWebDavProfile(webdavService, dependencies), dependencies), n = t.url;
+        if (dependencies.isActive?.() === false) return;
         if (!n) return void show.error("请填写并保存服务地址");
         const a = t.username;
         if (!a) return void show.error("请填写并保存用户名");
         if (!t.password) return void show.error("请填写并保存密码");
         const s = utils.getNowStr("_", "_") + ".json";
         const plain = await measureBackupStage("导出数据", async () => JSON.stringify(await storageManager.exportData()), dependencies);
+        if (dependencies.isActive?.() === false) return;
         const encrypted = await measureBackupStage("加密", () => encryptPortableBackup(plain), dependencies);
+        if (dependencies.isActive?.() === false) return;
         bytes = encrypted.length;
         const client = webdavService.createClient({ url: n, username: a, password: t.password });
         await client.backup(folderName, s, encrypted, logStage);
         result = "success";
     } catch (l) {
-        clog.error("[WebDAV备份失败]", backupErrorDetails(l)), show.error("备份失败，请检查连接与授权");
+        clog.error("[WebDAV备份失败]", backupErrorDetails(l));
+        if (dependencies.isActive?.() !== false) show.error("备份失败，请检查连接与授权");
     } finally {
         logStage({ stage: "合计", result, durationMs: window.performance.now() - startedAt, ...(bytes == null ? {} : { bytes }) });
-        try { r.close(); }
+        try { releaseLoading ? releaseLoading() : r.close(); }
         catch (error) {
             try { clog.warn("[WebDAV备份] 关闭加载提示失败", backupErrorDetails(error)); }
             catch { /* A completed upload must remain successful if diagnostics fail. */ }
         }
     }
-    if (result === "success") {
+    if (result === "success" && dependencies.isActive?.() !== false) {
         try { show.ok("已备份数据"); }
         catch (error) { clog.warn("[WebDAV备份] 上传成功，但完成提示失败", backupErrorDetails(error)); }
     }
@@ -154,217 +160,126 @@ export async function backupDataByWebDav(folderName, webdavService, dependencies
 /** @param {string} folderName @param {Function} openFileListDialogFn @param {WebDavHandle} webdavService @param {BackupUiDependencies} dependencies */
 export async function backupListBtnByWebDav(folderName, openFileListDialogFn, webdavService, dependencies) {
     const { notifications: show, logger: clog, domUi } = dependencies;
-    const loading = () => domUi.loading();
-    const t = await resolveWebDavProfile(webdavService, dependencies), n = t.url;
-    if (!n) return void show.error("请填写并保存服务地址");
-    const a = t.username;
-    if (!a) return void show.error("请填写并保存用户名");
-    if (!t.password) return void show.error("请填写并保存密码");
-    const s = loading();
+    if (dependencies.isActive?.() === false) return;
+    const scope = new LifecycleScope("backup-list-load");
+    const releaseParent = dependencies.scope?.addCleanup(() => scope.dispose());
+    scope.addCleanup(() => releaseParent?.());
+    const active = () => !scope.disposed && dependencies.isActive?.() !== false;
+    const loading = domUi.loading();
+    scope.addCleanup(() => loading.close());
     try {
+        const t = await resolveWebDavProfile(webdavService, dependencies), n = t.url;
+        if (!active()) return;
+        if (!n) return void show.error("请填写并保存服务地址");
+        const a = t.username;
+        if (!a) return void show.error("请填写并保存用户名");
+        if (!t.password) return void show.error("请填写并保存密码");
         const i = t.password;
         const e = webdavService.createClient({ url: n, username: a, password: i }), files = await e.getBackupList(folderName);
-        openFileListDialogFn(files, e, PRODUCT_NAMES.webdav);
+        if (active()) openFileListDialogFn(files, e, PRODUCT_NAMES.webdav);
     } catch (o) {
-        clog.error(o), show.error("备份列表加载失败，请重试");
+        if (active()) { clog.error(o); show.error("备份列表加载失败，请重试"); }
     } finally {
-        s.close();
+        scope.dispose();
     }
 }
 
-/** Mobile-specific backup file list dialog using card-based UI. */
-/** @param {BackupFile[]} e @param {WebDavHandle} t @param {string} n @param {string} folderName @param {ShowDiffPreview} showDiffPreviewFn @param {DialogHandle} dialog @param {BackupUiDependencies} dependencies */
-function openFileListDialogMobile(e, t, n, folderName, showDiffPreviewFn, dialog, dependencies) {
+/** Backup file lists own their table, operations and nested confirmations. */
+/** @param {BackupFile[]} files @param {WebDavHandle} client @param {string} label @param {string} folderName @param {ShowDiffPreview} showDiffPreviewFn @param {DialogHandle} dialog @param {BackupUiDependencies} dependencies */
+export function openFileListDialog(files, client, label, folderName, showDiffPreviewFn, dialog, dependencies) {
+    if (dependencies.isActive?.() === false) return;
     const { jquery: $, legacyStorage: storageManager, utilities: utils, notifications: show, logger: clog, domUi } = dependencies;
-    const loading = () => domUi.loading();
+    const scope = new LifecycleScope("backup-file-list");
+    /** @type {number | null} */ let index = null;
+    /** @type {any} */ let table = null;
+    /** @type {HTMLElement | null} */ let root = null;
+    let busy = false;
+    const releaseParent = dependencies.scope?.addCleanup(() => scope.dispose());
+    scope.addCleanup(() => releaseParent?.());
+    scope.addCleanup(() => { if (index != null) dialog.close(index); table?.destroy?.(); table = null; });
+    const active = () => !scope.disposed && dependencies.isActive?.() !== false && (!root || root.isConnected);
     const formatSize = (/** @type {number} */ size) => {
         const units = ["B", "KB", "MB", "GB", "TB", "PB"];
-        let i = 0, s = size;
-        for (; s >= 1024 && i < units.length - 1;) s /= 1024, i++;
-        return `${s % 1 == 0 ? s.toFixed(0) : s.toFixed(2)} ${units[i]}`;
+        let i = 0, value = size;
+        while (value >= 1024 && i < units.length - 1) { value /= 1024; i++; }
+        return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2)} ${units[i]}`;
     };
-    const renderCards = (/** @type {BackupFile[]} */ files) => {
-        if (!files || files.length === 0) {
-            return '<div class="jhs-backup-empty">暂无备份</div>';
-        }
-        return files.map((file, /** @type {number} */ idx) => `
-                <div class="jhs-backup-card" data-idx="${idx}">
-                    <div class="jhs-backup-card-name">${escapeHtml(file.name)}</div>
-                    <div class="jhs-backup-card-meta">${formatSize(file.size)} · ${utils.getNowStr("-", ":", file.createTime)}</div>
-                    <div class="jhs-backup-card-actions">
-                        <button class="jhs-btn jhs-backup-btn jhs-backup-btn-danger" data-action="delete" data-idx="${idx}">删除</button>
-                        <button class="jhs-btn jhs-backup-btn jhs-backup-btn-primary" data-action="download" data-idx="${idx}">下载</button>
-                        <button class="jhs-btn jhs-backup-btn jhs-backup-btn-success" data-action="import" data-idx="${idx}">导入</button>
-                    </div>
-                </div>
-            `).join("");
-    };
-    const containerId = "jhs-backup-card-list";
-    dialog.open({
-        type: 1,
-        title: n + "备份文件",
-        content: `<div id="${containerId}" class="jhs-backup-cards">${renderCards(e)}</div>`,
-        area: utils.getResponsiveArea(["800px", "70%"]),
-        anim: -1,
-        success: (/** @type {HTMLElement} */ layerEl) => {
-            const container = $(layerEl).find(`#${containerId}`);
-            container.on("click", ".jhs-backup-btn", async (/** @type {MouseEvent} */ ev) => {
-                const btn = $(ev.currentTarget);
-                const action = btn.data("action");
-                const idx = btn.data("idx");
-                const file = e[idx];
-                if (!file) return;
-                if (action === "delete") {
-                    dialog.confirm(`删除备份“${escapeHtml(file.name)}”？此操作无法撤销`, {
-                        icon: 3, title: "提示", confirmText: "删除", cancelText: "取消"
-                    }, async (/** @type {number} */ confirmIdx) => {
-                        dialog.close(confirmIdx);
-                        let load = loading();
-                        try {
-                            await t.deleteFile(file.fileId);
-                            e = await t.getBackupList(folderName);
-                            container.html(renderCards(e));
-                            show.ok("已删除备份");
-                        } catch (err) {
-                            clog.error(err), show.error("备份删除失败，请重试");
-                        } finally { load.close(); }
-                    });
-                } else if (action === "download") {
-                    let load = loading();
-                    try {
-                        const data = await decryptPortableBackup(await t.getFileContent(file.fileId));
-                        utils.download(data, file.name);
-                    } catch (err) {
-                        clog.error(err), show.error("备份下载失败，请重试");
-                    } finally { load.close(); }
-                } else if (action === "import") {
-                    let load = loading();
-                    try {
-                        let data = await t.getFileContent(file.fileId);
-                        data = await decryptPortableBackup(data);
-                        const parsed = JSON.parse(data);
-                        const currentData = await storageManager.exportData();
-                        const diff = await storageManager.diffData(currentData, parsed);
-                        load.close();
-                        showDiffPreviewFn(diff, null, parsed);
-                    } catch (err) {
-                        load.close(), clog.error(err), show.error("备份预览失败，请检查文件");
-                    }
+    const buttons = (/** @type {BackupFile} */ file) => `<div data-backup-file="${escapeHtml(file.fileId)}">${[["delete","删除","danger"],["download","下载","secondary"],["import","导入","primary"]].map(([action,text,kind]) => `<button type="button" class="jhs-btn jhs-btn--${kind} backup-${action} jhs-backup-btn jhs-backup-btn-${kind}" data-action="${action}" data-backup-action="${action}">${text}</button>`).join(" ")}</div>`;
+    const mobile = utils.isMobileMode();
+    const renderCards = () => files.length ? files.map(file => `<article class="jhs-backup-card"><div class="jhs-backup-card-name">${escapeHtml(file.name)}</div><div class="jhs-backup-card-meta">${formatSize(file.size)} · ${formatUiDateTime(file.createTime)}</div><div class="jhs-backup-card-actions">${buttons(file)}</div></article>`).join("") : '<div class="jhs-backup-empty">暂无备份</div>';
+    const perform = async (/** @type {string} */ action, /** @type {BackupFile} */ file) => {
+        if (!active() || busy) return;
+        busy = true;
+        root?.querySelectorAll("[data-backup-action]").forEach(button => { /** @type {HTMLButtonElement} */ (button).disabled = true; });
+        const loading = domUi.loading(), releaseLoading = scope.addCleanup(() => loading.close());
+        let deleted = false;
+        try {
+            if (action === "delete") {
+                await client.deleteFile(file.fileId); deleted = true;
+                if (!active()) return;
+                files = await client.getBackupList(folderName);
+                if (!active()) return;
+                if (table) await table.replaceData(files);
+                else $(root).find(".jhs-backup-cards").html(renderCards());
+                if (active()) show.ok("已删除备份");
+            } else {
+                let content = await client.getFileContent(file.fileId);
+                if (!active()) return;
+                content = await decryptPortableBackup(content);
+                if (!active()) return;
+                if (action === "download") utils.download(content, file.name);
+                else {
+                    const parsed = JSON.parse(content), current = await storageManager.exportData();
+                    if (!active()) return;
+                    const diff = await storageManager.diffData(current, parsed);
+                    if (active()) { releaseLoading(); showDiffPreviewFn(diff, null, parsed); }
                 }
-            });
+            }
+        } catch (error) {
+            if (active()) {
+                clog.error(error);
+                show.error(deleted ? "备份已删除，列表刷新失败，请重新打开列表" : action === "delete" ? "备份删除失败，请重试" : action === "download" ? "备份下载失败，请重试" : "备份预览失败，请检查文件");
+            }
+        } finally {
+            busy = false; releaseLoading();
+            if (active()) root?.querySelectorAll("[data-backup-action]").forEach(button => { /** @type {HTMLButtonElement} */ (button).disabled = false; });
         }
-    });
-}
-
-/** Desktop backup file list dialog using Tabulator table. */
-/** @param {BackupFile[]} e @param {WebDavHandle} t @param {string} n @param {string} folderName @param {ShowDiffPreview} showDiffPreviewFn @param {DialogHandle} dialog @param {BackupUiDependencies} dependencies */
-export function openFileListDialog(e, t, n, folderName, showDiffPreviewFn, dialog, dependencies) {
-    const { jquery: $, legacyStorage: storageManager, utilities: utils, notifications: show, logger: clog, domUi } = dependencies;
-    const loading = () => domUi.loading();
-    if (utils.isMobileMode()) {
-        openFileListDialogMobile(e, t, n, folderName, showDiffPreviewFn, dialog, dependencies);
-        return;
-    }
-    dialog.open({
-        type: 1,
-        title: n + "备份文件",
-        content: '\n                <div class="jhs-table-dialog"> \n                    <div id="table-container" class="jhs-table-dialog__content"></div>\n                </div>\n            ',
-        area: utils.getResponsiveArea([ "800px", "70%" ]),
-        anim: -1,
-        success: (/** @type {HTMLElement} */ a) => {
-            const tableRoot = $(a).find(".jhs-table-dialog__content").get(0) || $(a).find("#table-container").get(0);
-            const i = createJhsTable(domUi.tableConstructor, tableRoot, {
-                pagination: !1,
-                layout: "fitColumns",
-                placeholder: "暂无备份",
-                virtualDom: !0,
-                data: e,
-                responsiveLayout: "collapse",
-                responsiveLayoutCollapse: !0,
-                columnDefaults: {
-                    headerHozAlign: "center",
-                    hozAlign: "center"
-                },
-                columns: [ {
-                    title: "文件名",
-                    field: "name",
-                    width: 200,
-                    headerSort: !1,
-                    responsive: 0
-                }, {
-                    title: "文件大小",
-                    field: "size",
-                    responsive: 1,
-                    headerSort: !1,
-                    formatter: (/** @type {any} */ e, /** @type {any} */ t, /** @type {any} */ n) => {
-                        const a = [ "B", "KB", "MB", "GB", "TB", "PB" ];
-                        let i = 0, s = e.getData().size;
-                        for (;s >= 1024 && i < a.length - 1; ) s /= 1024, i++;
-                        return `${s % 1 == 0 ? s.toFixed(0) : s.toFixed(2)} ${a[i]}`;
-                    }
-                }, {
-                    title: "备份日期",
-                    field: "createTime",
-                    responsive: 2,
-                    headerSort: !1,
-                    formatter: (/** @type {any} */ e, /** @type {any} */ t, /** @type {any} */ n) => {
-                        const a = e.getData();
-                        return `${utils.getNowStr("-", ":", a.createTime)}`;
-                    }
-                }, {
-                    title: "操作",
-                    minWidth: 250,
-                    responsive: 0,
-                    headerSort: !1,
-                    formatter: (/** @type {any} */ e, /** @type {any} */ a, /** @type {(callback: () => void) => void} */ s) => {
-                        const o = e.getData();
-                        return s((() => {
-                            const a = e.getElement().querySelector(".backup-delete"), s = e.getElement().querySelector(".backup-download"), r = e.getElement().querySelector(".backup-import");
-                            a && a.addEventListener("click", ((/** @type {MouseEvent} */ e) => {
-                                dialog.confirm(`删除备份“${escapeHtml(o.name)}”？此操作无法撤销`, {
-                                    icon: 3,
-                                    title: "提示",
-                                    confirmText: "删除", cancelText: "取消"
-                                }, (async (/** @type {number} */ e) => {
-                                    dialog.close(e);
-                                    let a = loading();
-                                    try {
-                                        await t.deleteFile(o.fileId);
-                                        let e = await t.getBackupList(folderName);
-                                        i.replaceData(e), show.ok("已删除备份");
-                                    } catch (s) {
-                                        clog.error(s), show.error("备份删除失败，请重试");
-                                    } finally {
-                                        a.close();
-                                    }
-                                }));
-                            })), s && s.addEventListener("click", (async (/** @type {MouseEvent} */ e) => {
-                                let a = loading();
-                                try {
-                                    const e = await decryptPortableBackup(await t.getFileContent(o.fileId));
-                                        utils.download(e, o.name);
-                                } catch (i) {
-                                    clog.error(i), show.error("备份下载失败，请重试");
-                                } finally {
-                                    a.close();
-                                }
-                            })), r && r.addEventListener("click", (async (/** @type {MouseEvent} */ e) => {
-                                let a = loading();
-                                try {
-                                    let e = await t.getFileContent(o.fileId);
-                                    e = await decryptPortableBackup(e);
-                                    const n = JSON.parse(e), i = await storageManager.exportData(), s = await storageManager.diffData(i, n);
-                                    a.close(), showDiffPreviewFn(s, null, n);
-                                } catch (i) {
-                                    a.close(), clog.error(i), show.error("备份预览失败，请检查文件");
-                                }
-                            }));
-                        })), '\n                                    <button type="button" class="jhs-btn jhs-btn--danger backup-delete">删除</button>\n                                    <button type="button" class="jhs-btn jhs-btn--secondary backup-download">下载</button>\n                                    <button type="button" class="jhs-btn jhs-btn--secondary backup-import">导入</button>\n                                ';
-                    }
-                } ]
+    };
+    index = dialog.open({
+        type: 1, title: label + "备份文件", ui: {body: mobile ? "scroll" : "table"},
+        content: mobile ? `<div id="jhs-backup-card-list" class="jhs-backup-cards">${renderCards()}</div>` : '<div class="jhs-table-dialog"><div id="table-container" class="jhs-table-dialog__content"></div></div>',
+        area: utils.getResponsiveArea(["800px", "70%"]), anim: -1,
+        end: () => { index = null; scope.dispose(); },
+        success: (/** @type {any} */ element) => {
+            const elementRoot = /** @type {HTMLElement} */ (element?.jquery ? element[0] : element);
+            root = elementRoot;
+            if (!active()) return;
+            if (!mobile) table = createJhsTable(domUi.tableConstructor, /** @type {HTMLElement} */ (elementRoot.querySelector(".jhs-table-dialog__content")), {
+                pagination: false, layout: "fitColumns", placeholder: "暂无备份", data: files,
+                columnDefaults: {headerHozAlign:"center",hozAlign:"center"},
+                columns: [
+                    {title:"文件名",field:"name",minWidth:200,responsive:0,headerSort:false},
+                    {title:"文件大小",field:"size",responsive:1,headerSort:false,formatter:(/** @type {any} */ cell)=>formatSize(cell.getValue())},
+                    {title:"备份日期",field:"createTime",responsive:2,headerSort:false,formatter:(/** @type {any} */ cell)=>formatUiDateTime(cell.getValue())},
+                    {title:"操作",minWidth:250,responsive:0,headerSort:false,formatter:(/** @type {any} */ cell)=>buttons(cell.getData())},
+                ],
             });
-        }
+            scope.listen(elementRoot, "click", event => {
+                const button = /** @type {Element} */ (event.target).closest?.("[data-backup-action]");
+                if (!button || !active() || busy) return;
+                const file = files.find(file => file.fileId === button.closest("[data-backup-file]")?.getAttribute("data-backup-file"));
+                if (!file) return;
+                const action = button.getAttribute("data-backup-action") || "";
+                if (action !== "delete") { void perform(action, file); return; }
+                /** @type {number | null} */ let confirmation = null;
+                const release = scope.addCleanup(() => { if (confirmation != null) dialog.close(confirmation); });
+                confirmation = dialog.confirm(`删除备份“${escapeHtml(file.name)}”？此操作无法撤销`, {
+                    icon:3,title:"提示",confirmText:"删除",cancelText:"取消",end:()=>{confirmation=null;release();},
+                }, (/** @type {number} */ id) => { dialog.close(id); if (active()) void perform("delete",file); });
+            });
+        },
     });
+    return index;
 }
 
 /** Export all data as a downloadable JSON file. */

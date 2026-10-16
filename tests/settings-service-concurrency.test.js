@@ -34,6 +34,23 @@ function createSharedStorage(initial = {}) {
 describe("SettingsService single write entry", () => {
     afterEach(() => { vi.unstubAllGlobals(); });
 
+    it("refreshes the snapshot and permits related writes under one exclusive lock", async () => {
+        const locks = createFakeLocks(), coordinator = new StorageMutationCoordinator({ lockManager: locks });
+        const storage = createSharedStorage({ themeMode: "light" });
+        const service = new SettingsService(storage, { mutationCoordinator: coordinator });
+        await service.load();
+        await storage.set("setting", { themeMode: "dark", foreignValue: "latest" });
+        locks.names.length = 0;
+        const result = await service.runExclusive(async () => {
+            expect(service.snapshot()).toMatchObject({ themeMode: "dark", foreignValue: "latest" });
+            await service.updateWithoutLock(draft => { draft.profileSaved = true; });
+            return "saved";
+        });
+        expect(result).toBe("saved");
+        expect(storage.read()).toMatchObject({ themeMode: "dark", foreignValue: "latest", profileSaved: true });
+        expect(locks.names).toEqual([STORAGE_MUTATION_LOCK]);
+    });
+
     it("merges concurrent patches from two tabs without losing updates", async () => {
         vi.stubGlobal("navigator", { locks: createFakeLocks() });
         const storage = createSharedStorage({ sortMethod: "default", videoMuted: "no" });

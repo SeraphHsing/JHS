@@ -142,6 +142,32 @@ it("uses a 10-second WebDAV deadline without changing ordinary request settings"
     ]);
 });
 
+it("treats special backup filenames as one encoded path segment for upload, download and delete", async () => {
+    const request = vi.fn(async () => ({ status: 200, data: "backup" }));
+    const client = new WebDavService({ request }).createClient({ url: "https://dav.example/dav", username: "u", password: "p" });
+    client.folderName = "JHS";
+    for (const name of ["备份 空格.json", "backup#1?.json", "literal%2Fname.json"]) {
+        await client.backup("JHS", name, "payload");
+        await client.getFileContent(name);
+        await client.deleteFile(name);
+        const paths = request.mock.calls.slice(-3).map(([options]) => new URL(options.url));
+        expect(paths.map(url => url.pathname)).toEqual(Array(3).fill(`/dav/JHS/${encodeURIComponent(name)}`));
+        expect(paths.every(url => !url.hash && !url.search)).toBe(true);
+    }
+});
+
+it("rejects directory-like backup filenames before any download, delete or upload request", async () => {
+    const request = vi.fn(async () => ({ status: 200, data: "backup" }));
+    const client = new WebDavService({ request }).createClient({ url: "https://dav.example/dav", username: "u", password: "p" });
+    client.folderName = "JHS";
+    for (const name of ["", ".", "..", "nested/name.json", "nested\\name.json"]) {
+        await expect(client.getFileContent(name)).rejects.toMatchObject({ code: "INVALID_URL" });
+        await expect(client.deleteFile(name)).rejects.toMatchObject({ code: "INVALID_URL" });
+        await expect(client.backup("JHS", name, "payload")).rejects.toMatchObject({ code: "INVALID_URL" });
+    }
+    expect(request).not.toHaveBeenCalled();
+});
+
 it("accepts upload before its deadline and ignores a later timeout callback", async () => {
     vi.useFakeTimers();
     try {

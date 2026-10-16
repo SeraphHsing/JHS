@@ -224,7 +224,9 @@ export function buildSettingCss(containerWidth, containerColumns, isJavBus, isJa
                 .jhs-setting-footer .jhs-caption { margin:0; }
                 .jhs-setting-footer { align-items:center; }
                 .jhs-setting-section output { min-width:3ch; font-size:var(--jhs-font-size-sm); font-variant-numeric:tabular-nums; }
-                .jhs-setting-row__control:has(input[type="range"]) { display:flex; align-items:center; gap:var(--jhs-space-2); }
+                .jhs-setting-row__control:has(input[type="range"]) { display:flex; align-items:center; flex-wrap:nowrap; gap:var(--jhs-space-2); }
+                .jhs-setting-row__control:has(input[type="range"]) > input[type="range"] { flex:1; min-width:0; }
+                .jhs-setting-row__control:has(input[type="range"]) > output { flex:0 0 auto; }
                 [data-jhs-setting-section="card-buttons"] { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 var(--jhs-space-4); }
                 [data-jhs-setting-section="card-buttons"] .jhs-setting-row { grid-template-columns:minmax(0,1fr) auto; }
                 [data-jhs-setting-section="card-buttons"] .jhs-setting-row__control { width:auto; }

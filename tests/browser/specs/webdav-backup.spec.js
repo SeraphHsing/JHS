@@ -13,7 +13,7 @@ for (const broken of [false, true]) {
     await page.evaluate(async ({ encrypted, broken }) => {
       const plugin = window.unsafeWindow.pluginManager.getBean("SettingPlugin"), webdav = plugin.getRuntimeService("webdav");
       await webdav.settings.update(draft => { draft.webDavUrl = "https://dav.example.test/dav"; draft.webDavUsername = "fixture-user"; draft.trustedLocalOrigins = ["https://dav.example.test"]; });
-      webdav.credential.get = async () => "fixture-password";
+      await webdav.saveProfile({ password: "fixture-password" });
       window.__previewProbe = { imports: 0, errors: [], diagnostics: [], downloads: [] };
       const logError = plugin.logger.error.bind(plugin.logger);
       plugin.logger.error = (...args) => { window.__previewProbe.diagnostics.push(args.map(value => value instanceof Error ? value.message : String(value)).join(" ")); logError(...args); };
@@ -72,8 +72,7 @@ test("Chrome settings backup keeps WebDAV's 10-second deadline and records safe 
       draft.webDavUsername = "fixture-user";
       draft.trustedLocalOrigins = ["https://dav.example.test"];
     });
-    const originalGet = webdav.credential.get.bind(webdav.credential);
-    webdav.credential.get = (key) => key === "jhs_webdav_password" ? Promise.resolve("fixture-password") : originalGet(key);
+    await webdav.saveProfile({ password: "fixture-password" });
     window.__webdavRequests = [];
     const originalRequest = webdav.http.port.requestImplementation;
     webdav.http.port.requestImplementation = (options) => {

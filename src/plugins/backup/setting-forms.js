@@ -114,6 +114,14 @@ function formRoot(dependencies, layerRoot) {
     return layerRoot ? dependencies.jquery(layerRoot) : dependencies.jquery(dependencies.document);
 }
 
+/** Keep a broken credential recoverable without blocking unrelated settings. @param {any} root @param {SettingDependencies} dependencies @param {any} error */
+function showWebDavCredentialError(root, dependencies, error) {
+    root.data("jhsWebDavCredentialError", error);
+    root.find("#jhs-webdav-credential-error").remove();
+    root.find("#webDavPassword").attr({ "aria-invalid": "true", "aria-describedby": "jhs-webdav-credential-error" }).closest(".jhs-setting-row")
+        .after(dependencies.jquery('<p id="jhs-webdav-credential-error" class="jhs-setting-help" role="alert"></p>').text(error.message));
+}
+
 /** Load all settings from storage into the main settings dialog form fields. */
 /** @param {SettingDependencies} dependencies @param {any} [layerRoot] */
 export async function loadSettingForm(dependencies, layerRoot = null) {
@@ -146,7 +154,16 @@ export async function loadSettingForm(dependencies, layerRoot = null) {
     root.find("#webDavUrl").val(e.webDavUrl || "");
     root.find("#webDavUsername").val(e.webDavUsername || "");
     const webdav = dependencies.webdav;
-    const profile = webdav?.getProfile ? await webdav.getProfile() : { url: e.webDavUrl, username: e.webDavUsername, password: "" };
+    let profile = { url: e.webDavUrl, username: e.webDavUsername, password: "" };
+    try {
+        if (webdav?.getProfile) profile = await webdav.getProfile();
+        root.removeData("jhsWebDavCredentialError");
+        root.find("#jhs-webdav-credential-error").remove();
+        root.find("#webDavPassword").removeAttr("aria-invalid aria-describedby");
+    } catch (error) {
+        if (/** @type {any} */ (error)?.code !== "WEBDAV_CREDENTIAL_UNREADABLE") throw error;
+        showWebDavCredentialError(root, dependencies, error);
+    }
     root.find("#webDavUrl").val(profile.url || "");
     root.find("#webDavUsername").val(profile.username || "");
     root.find("#webDavPassword").val(profile.password || "");
@@ -261,12 +278,21 @@ export async function saveSettingForm(dependencies, layerRoot = null) {
     const root = formRoot(dependencies, layerRoot);
     const dirtyKeys = root.data("jhsDirtyManualKeys") || null;
     if (dirtyKeys instanceof Set && dependencies.webdav?.getProfile) {
-        const savedProfile = await dependencies.webdav.getProfile();
         const currentProfile = {
             webDavUrl: String(root.find("#webDavUrl").val() || "").trim(),
             webDavUsername: String(root.find("#webDavUsername").val() || ""),
             webDavPassword: String(root.find("#webDavPassword").val() || ""),
         };
+        let savedProfile;
+        try { savedProfile = await dependencies.webdav.getProfile(); }
+        catch (error) {
+            if (/** @type {any} */ (error)?.code !== "WEBDAV_CREDENTIAL_UNREADABLE") throw error;
+            showWebDavCredentialError(root, dependencies, error);
+            // An untouched empty field is not consent to erase a damaged record.
+            if (currentProfile.webDavPassword) dirtyKeys.add("webDavPassword");
+            const saved = dependencies.settings.snapshot();
+            savedProfile = { url: saved.webDavUrl, username: saved.webDavUsername, password: currentProfile.webDavPassword };
+        }
         if (currentProfile.webDavUrl !== String(savedProfile.url || "")) dirtyKeys.add("webDavUrl");
         if (currentProfile.webDavUsername !== String(savedProfile.username || "")) dirtyKeys.add("webDavUsername");
         if (currentProfile.webDavPassword !== String(savedProfile.password || "")) dirtyKeys.add("webDavPassword");
@@ -312,6 +338,9 @@ export async function saveSettingForm(dependencies, layerRoot = null) {
             ...(!dirtyKeys || dirtyKeys.has("webDavUsername") ? { username: String(root.find("#webDavUsername").val() || "") } : {}),
             ...(!dirtyKeys || dirtyKeys.has("webDavPassword") ? { password: String(root.find("#webDavPassword").val() || "") } : {}),
         }, applySettingPatch);
+        root.removeData("jhsWebDavCredentialError");
+        root.find("#jhs-webdav-credential-error").remove();
+        root.find("#webDavPassword").removeAttr("aria-invalid aria-describedby");
     } else await dependencies.settings.update(applySettingPatch);
     root.data("jhsDirtyManualKeys", new Set());
 

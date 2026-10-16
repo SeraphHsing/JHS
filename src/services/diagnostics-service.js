@@ -1,14 +1,34 @@
 // @ts-check
 
-const SENSITIVE_KEY = /^(?:authorization|cookie|set-cookie|password|token|secret|credential)$/i;
+const SENSITIVE_KEY = /^(?:authorization|proxyauthorization|cookie|setcookie|password|passwd|pwd|token|accesstoken|refreshtoken|authtoken|authortoken|appauthorization|secret|clientsecret|installationsecret|credential|credentials|apikey|webdavpassword|jhswebdavpassword|jhsappauthorization)$/i;
+
+/** @param {string} key */
+function isSensitiveKey(key) { return SENSITIVE_KEY.test(key.replace(/[^a-z0-9]/gi, "")); }
 
 /** @param {unknown} value @param {string} [key] @returns {unknown} */
 function sanitize(value, key = "") {
-    if (SENSITIVE_KEY.test(key)) return "[redacted]";
+    if (isSensitiveKey(key)) return "[redacted]";
     if (Array.isArray(value)) return value.map((item) => sanitize(item));
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, sanitize(child, childKey)]));
     if (typeof value !== "string") return value;
-    return value.replace(/(https?:\/\/)([^\s/@:]+):([^\s/@]+)@/gi, "$1[redacted]@");
+    return value.replace(/https?:\/\/[^\s<>"']+/gi, (raw) => {
+        try {
+            const url = new URL(raw);
+            const sensitiveParams = [...url.searchParams.keys()].filter(isSensitiveKey);
+            const credentials = Boolean(url.username || url.password);
+            if (!credentials && !sensitiveParams.length) return raw;
+            if (credentials) { url.username = "[redacted]"; url.password = ""; }
+            for (const name of sensitiveParams) url.searchParams.set(name, "[redacted]");
+            return url.href;
+        } catch {
+            return raw.replace(/^(https?:\/\/)[^/\s@]+@/i, "$1[redacted]@")
+                .replace(/([?&])([^=&#]+)=([^&#]*)/g, (match, separator, name) => {
+                    let decoded = name;
+                    try { decoded = decodeURIComponent(name); } catch { /* Match the literal key if malformed. */ }
+                    return isSensitiveKey(decoded) ? `${separator}${name}=[redacted]` : match;
+                });
+        }
+    });
 }
 
 export class DiagnosticsService {
@@ -49,7 +69,7 @@ export class DiagnosticsService {
     /** @param {boolean} hit */
     recordCache(hit) { hit ? this.cacheStats.hits += 1 : this.cacheStats.misses += 1; }
     /** @param {string} id @param {Record<string, unknown>} health */
-    updateProvider(id, health) { this.providerHealth.set(id, Object.freeze({ ...health })); }
+    updateProvider(id, health) { this.providerHealth.set(id, Object.freeze({ .../** @type {Record<string, unknown>} */ (sanitize(health)) })); }
     /** @param {unknown} error */
     recordError(error) {
         const value = error && typeof error === "object" && "toJSON" in error && typeof error.toJSON === "function"
