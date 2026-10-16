@@ -30,6 +30,16 @@ function createWorkspace(records = []) {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("BlacklistWorkspaceController", () => {
+    it("formats creation dates for display without changing the source value or sorter", () => {
+        const { controller, dom } = createWorkspace();
+        const column = controller.getColumns().find(column => column.field === "createTime");
+        expect(column.sorter).toBe("string");
+        expect(column.formatter({ getData: () => ({}) })).toBe("无");
+        const record = { createTime: "2026-10-15T08:09:10" };
+        expect(column.formatter({ getData: () => record })).toBe("2026-10-15 08:09:10");
+        expect(record.createTime).toBe("2026-10-15T08:09:10");
+        dom.window.close();
+    });
     it("shows a bounded startup failure and restores the manual scan button", async () => {
         const { controller, dom, $ } = createWorkspace();
         const button = $('<button id="checkBlacklistBtn"><span>检测</span></button>').appendTo(controller.blacklistRoot);

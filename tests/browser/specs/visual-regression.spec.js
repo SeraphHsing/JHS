@@ -46,6 +46,18 @@ test("Settings dialog visual baseline", async ({ context, page }, testInfo) => {
   await injectUserscriptRuntime(page);
   await page.evaluate(() => window.unsafeWindow.pluginManager.getBean("SettingPlugin").openSettingDialog());
   await expect(page.locator(".layui-layer #saveBtn")).toHaveAttribute("data-jhs-settings-ready", "true");
+  for (const id of ["containerColumns", "containerWidth"]) {
+    const geometry = await page.locator(`.layui-layer #${id}`).evaluate(input => {
+      const control = input.closest(".jhs-setting-row__control"), output = control.querySelector("output");
+      const row = control.getBoundingClientRect(), track = input.getBoundingClientRect(), value = output.getBoundingClientRect();
+      return { trackWidth: track.width, valueWidth: value.width, trackCenter: track.y + track.height / 2, valueCenter: value.y + value.height / 2, trackRight: track.right, valueLeft: value.left, valueRight: value.right, rowRight: row.right };
+    });
+    expect(geometry.trackWidth, `${id} remains usable`).toBeGreaterThan(44);
+    expect(geometry.valueWidth).toBeGreaterThan(0);
+    expect(Math.abs(geometry.trackCenter - geometry.valueCenter), `${id} value stays beside the track`).toBeLessThanOrEqual(1);
+    expect(geometry.trackRight).toBeLessThanOrEqual(geometry.valueLeft);
+    expect(geometry.valueRight).toBeLessThanOrEqual(geometry.rowRight + 1);
+  }
   // 只锁定设置弹窗本身，避免页面背景（FAB/日志浮层/列表状态）造成非确定性 diff。
   await expect(page.locator(".layui-layer")).toHaveScreenshot("settings-dialog.png", { maxDiffPixelRatio: 0.02 });
 });

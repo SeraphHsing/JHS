@@ -4,7 +4,9 @@ import { A, B, D, P, escapeHtml } from "../../core/constants.js";
 import { normalizeHttpUrl, parseNumberSetting, shouldSkipStopped } from "../../core/feature-helpers.js";
 import { FEATURE_ICONS } from "../../core/feature-icons.js";
 import { renderStateView } from "../../core/ui-primitives.js";
+import { renderTaskStatus } from "../../core/task-status-view.js";
 import { createJhsTable } from "../../ui/table/create-jhs-table.js";
+import { formatUiDateTime } from "../../core/ui-date-time.js";
 
 /** @typedef {{starId: string, name?: string, allName?: string | string[], role: string, url?: string, movieType?: string, createTime?: string, lastPublishTime?: string | number, isUnCheck?: boolean, count?: number}} BlacklistRecord */
 /** @typedef {{getData: () => BlacklistRecord, getElement: () => HTMLElement}} TableCell */
@@ -71,10 +73,10 @@ export class BlacklistWorkspaceController {
                         <button type="button" class="jhs-btn jhs-btn--ghost" id="toSetting">${FEATURE_ICONS.settingSvg}<span>设置</span></button>
                     </div>
                     <div class="jhs-layout-31a824a2">
-                        <select id="dataType" class="jhs-select-source"><option value="" selected>所有</option><option value="actor">男演员</option><option value="actress">女演员</option></select>
-                        <select id="statusType" class="jhs-select-source"><option value="" selected>全部状态</option><option value="normal">继续检测</option><option value="stop">停更跳过</option></select>
-                        <select id="urlType" data-tip="在演员页屏蔽时,是否选择了分类" class="jhs-select-source${this.site === "javdb" ? "" : " jhs-is-hidden"}"><option value="" selected>--屏蔽类型--</option><option value="hasT">按所选分类屏蔽</option><option value="noT">未筛选分类</option></select>
-                        <input id="searchValue" type="search" placeholder="搜索名称、别名或 ID" class="jhs-field">
+                        <select id="dataType" class="jhs-select-source" aria-label="演员角色"><option value="" selected>所有</option><option value="actor">男演员</option><option value="actress">女演员</option></select>
+                        <select id="statusType" class="jhs-select-source" aria-label="检测状态"><option value="" selected>全部状态</option><option value="normal">继续检测</option><option value="stop">停更跳过</option></select>
+                        <select id="urlType" aria-label="屏蔽类型" data-tip="在演员页屏蔽时,是否选择了分类" class="jhs-select-source${this.site === "javdb" ? "" : " jhs-is-hidden"}"><option value="" selected>--屏蔽类型--</option><option value="hasT">按所选分类屏蔽</option><option value="noT">未筛选分类</option></select>
+                        <input id="searchValue" type="search" placeholder="搜索名称、别名或 ID" aria-label="搜索黑名单演员" class="jhs-field">
                         <button type="button" id="cleanQueryBtn" class="jhs-btn jhs-btn--secondary jhs-layout-21a4fe43">重置</button>
                     </div>
                 </div>
@@ -167,15 +169,8 @@ export class BlacklistWorkspaceController {
         const container = this.blacklistRoot?.find("#blacklist-task-status");
         if (!container?.length) return;
         if (!this.task) return void container.empty().text("后台任务功能已禁用");
-        const snapshot = /** @type {{state: string, completedAt?: string | number, nextAt?: string | number}} */ (this.task.getTaskStatusSnapshot("blacklist"));
-        const labels = { idle: "正常", running: "运行中", pending: "等待下一次任务检查", due: "待运行" };
-        /** @param {unknown} value */
-        const format = (value) => value ? new Date(/** @type {string | number | Date} */ (value)).toLocaleString() : "无";
-        const state = labels[/** @type {keyof typeof labels} */ (snapshot.state)] || labels.idle;
-        container.empty().append(
-            this.$("<span class=\"jhs-task-status__name\"></span>").text(`黑名单：${state}`),
-            this.$("<span class=\"jhs-task-status__meta\"></span>").text(`上次完成 ${format(snapshot.completedAt)}；下次检查 ${snapshot.nextAt ? format(snapshot.nextAt) : "立即"}`),
-        );
+        const status = renderTaskStatus(this.$, "blacklist", this.task.getTaskStatusSnapshot("blacklist"), this.settings.snapshot());
+        container.empty().append(status.children());
     }
 
     async reloadTable(generation = this.dialogGeneration) {
@@ -269,7 +264,7 @@ export class BlacklistWorkspaceController {
                 return badge;
             } },
             { title: "番号数量", field: "count", sorter: "number", width: 170, responsive: 1 },
-            { title: "创建时间", field: "createTime", sorter: "string", width: 170, responsive: 5 },
+            { title: "创建时间", field: "createTime", sorter: "string", width: 170, responsive: 5, formatter: (/** @type {TableCell} */ cell) => formatUiDateTime(cell.getData().createTime) },
             { title: "最后发行时间", field: "lastPublishTime", sorter: "string", width: 170, responsive: 1 },
             { title: "状态", field: "isUnCheck", sorter: "string", width: 120, responsive: 1, formatter: (/** @type {TableCell} */ cell) => {
                 const stopped = cell.getData().isUnCheck, badge = this.document.createElement("span");

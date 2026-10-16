@@ -33,8 +33,9 @@ export function initializeTooltips(scope, doc) {
         tooltip?.remove(); tooltip = null; trigger = null;
         activeTooltips.delete(doc);
     };
-    const candidate = (/** @type {EventTarget | null} */ target) => {
+    const candidate = (/** @type {EventTarget | null} */ target, focused = false) => {
         const element = target instanceof view.Element ? /** @type {HTMLElement | null} */ (target.closest(selector)) : null;
+        if (focused && element !== target && !(element instanceof view.HTMLLabelElement && element.control === target)) return null;
         if (!element?.closest(".jhs-ui,.jhs-dialog,.jhs-btn,.jhs-field,.jhs-switch,.mini-switch,.card-btn,.jhs-icon-btn,.jhs-link")) return null;
         const title = element.getAttribute("title");
         if (title) {
@@ -84,7 +85,7 @@ export function initializeTooltips(scope, doc) {
     const scheduleHide = () => {
         clearTimeout(showTimer); clearTimeout(hideTimer);
         hideTimer = setTimeout(() => {
-            if (trigger?.contains(doc.activeElement) || trigger?.matches(":hover") || tooltip?.matches(":hover")) return;
+            if (trigger && candidate(doc.activeElement, true) === trigger || trigger?.matches(":hover") || tooltip?.matches(":hover")) return;
             hide();
         }, 120);
     };
@@ -101,7 +102,7 @@ export function initializeTooltips(scope, doc) {
         if (related && (trigger?.contains(/** @type {Node} */ (related)) || tooltip?.contains(/** @type {Node} */ (related)))) return;
         if (candidate(event.target) || tooltip?.contains(/** @type {Node} */ (event.target))) scheduleHide();
     });
-    scope.listen(doc, "focusin", event => { const element = candidate(event.target); if (element) show(element); });
+    scope.listen(doc, "focusin", event => { const element = candidate(event.target, true); if (element) show(element); });
     scope.listen(doc, "focusout", scheduleHide);
     scope.listen(doc, "keydown", event => {
         const key = /** @type {KeyboardEvent} */ (event).key;

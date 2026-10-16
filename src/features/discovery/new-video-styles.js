@@ -26,8 +26,8 @@ export const NEW_VIDEO_STYLES = `.newVideoToolBox { display:flex; flex-direction
 
 
                 .actress-card__menu-popover button { width:100%; justify-content:flex-start; }
-                .card-tag.is-uncensored { color:var(--jhs-status-down); background:var(--jhs-status-down-tint); }
-                .card-tag.is-censored { color:var(--jhs-status-watch); background:var(--jhs-status-watch-tint); }
+                .card-tag.is-uncensored { color:var(--jhs-status-down-text); background:var(--jhs-status-down-tint); }
+                .card-tag.is-censored { color:var(--jhs-status-watch-text); background:var(--jhs-status-watch-tint); }
                 .card-tag.is-unknown { color:var(--jhs-text-muted); background:var(--jhs-surface-2); }
                 #new-video-list-container { display:none; flex:1; min-width:0; min-height:0; overflow-x:hidden; overflow-y:auto; }
                 #new-video-list-footer { display:none; padding:var(--jhs-space-2) 0; border-top:1px solid var(--jhs-border); color:var(--jhs-text-muted); font-size:var(--jhs-font-size-sm); }
@@ -72,7 +72,43 @@ export const NEW_VIDEO_STYLES = `.newVideoToolBox { display:flex; flex-direction
                 .jhs-form-dialog .jhs-textarea { min-height:60px; overflow-y:hidden; }
                 .jhs-option-row { display:flex; align-items:center; gap:var(--jhs-space-2); min-height:36px; }
                 #actress-pagination { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:var(--jhs-space-1); }
-                @media (max-width:767px) { .jhs-new-video-toolbar { align-items:stretch; flex-direction:column; } .jhs-new-video-toolbar select, .jhs-new-video-toolbar .jhs-btn { min-height:44px; } .newVideoToolBox .jhs-task-status-list { display:flex; flex-shrink:0; overflow-x:auto; } .newVideoToolBox .jhs-task-status { flex:0 0 180px; } .page-number-btn { display:none !important; } }
+
                 @media (max-height:500px) { .newVideoToolBox { overflow-y:auto; overscroll-behavior:contain; } .jhs-new-video-toolbar,.jhs-task-status-list,#new-video-list-footer { flex-shrink:0; } .newVideoToolBox #new-video-list-container { flex:1 0 160px; min-height:160px; } }
                 @media (prefers-reduced-motion:reduce) { .gfriends-image-item-wrapper { transition:none; } }
-                @media (max-width:767px) { .newVideoToolBox { overflow-y:auto; overscroll-behavior:contain; } .newVideoToolBox #new-video-list-container { min-height:160px; } }`;
+
+                .newVideoToolBox [hidden] { display:none!important; }
+                .jhs-new-video-toolbar { flex:0 0 auto; align-items:flex-end; gap:var(--jhs-space-2); }
+                .jhs-new-video-commandbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--jhs-space-2); width:100%; }
+                .jhs-new-video-searchbar { display:flex; align-items:center; gap:var(--jhs-space-2); min-width:0; }
+                .jhs-new-video-searchbar #nvSearch { width:240px; min-width:0; }
+                .jhs-new-video-more, #nvFilterToggle, #nvTaskToggle { display:none; }
+                .jhs-new-video-toolbar__filters { align-items:flex-end; flex:1; }
+                .jhs-new-video-filter-field { display:grid; min-width:0; gap:var(--jhs-space-1); margin:0; color:var(--jhs-text-muted); font-size:var(--jhs-font-size-xs); }
+                .jhs-new-video-toolbar #checkNewVideoMsg:empty { display:none; }
+                .jhs-new-video-tasks { flex:0 0 auto; min-width:0; }
+                #actress-card-container { flex:1; min-height:0; align-content:start; }
+                .newVideoToolBox[data-jhs-compact="true"] { overflow-y:auto; overscroll-behavior:contain; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-toolbar { display:flex; flex-direction:column; align-items:stretch; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-commandbar { flex-wrap:nowrap; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-view { flex:1; min-width:0; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-commandbar .jhs-btn { min-height:44px; padding-inline:var(--jhs-space-2); font-size:var(--jhs-font-size-sm); }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-toolbar__actions { flex-wrap:nowrap; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-more { display:block; }
+                .newVideoToolBox[data-jhs-compact="true"] #nvFilterToggle { display:inline-flex; flex:none; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-searchbar #nvSearch { flex:1; width:0; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-toolbar__filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); flex:none; max-height:200px; overflow:auto; padding:var(--jhs-space-1); }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-toolbar__filters :is(select,.jhs-select-control) { min-width:0; width:100%; }
+                .newVideoToolBox[data-jhs-compact="true"] #nvTaskToggle { display:flex; width:100%; justify-content:space-between; min-height:44px; }
+                .newVideoToolBox[data-jhs-compact="true"] #nvTaskToggle span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+                .newVideoToolBox[data-jhs-compact="true"] #nvTaskToggle[aria-expanded="true"] svg { transform:rotate(180deg); }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-task-status-list { grid-template-columns:1fr; max-height:200px; overflow:auto; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-task-status { min-width:0; }
+                .newVideoToolBox[data-jhs-compact="true"] :is(#new-video-list-container,#actress-card-container) { flex:1 0 200px; min-height:200px; }
+                .newVideoToolBox[data-jhs-compact="true"] :is(.jhs-new-video-pagination,#new-video-list-footer,#actress-pagination) { flex-shrink:0; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-batch { flex-wrap:nowrap; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-batch__actions { flex-wrap:nowrap; gap:var(--jhs-space-1); }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-batch :is(.jhs-btn,.jhs-new-video-selection) { white-space:nowrap; }
+                .newVideoToolBox[data-jhs-compact="true"] .jhs-new-video-batch .jhs-btn { padding-inline:var(--jhs-space-2); }
+                .newVideoToolBox[data-jhs-compact="true"] .page-number-btn { display:none!important; }
+                @media(max-height:500px) { .newVideoToolBox[data-jhs-compact="true"] :is(#new-video-list-container,#actress-card-container) { flex-basis:160px; min-height:160px; } }
+`;

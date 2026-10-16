@@ -15,10 +15,10 @@ describe("v6.4.1 frozen UI contracts", () => {
     const blacklist = read("src/features/library/blacklist-workspace-controller.js");
 
     it("uses native, tokenized Avatar candidate buttons without hover scaling", () => {
-        const avatar = newVideo.slice(newVideo.indexOf("async searchAvatar()"));
+        const avatar = newVideo.slice(newVideo.indexOf("async searchAvatar("));
         expect(avatar).toContain('<button type="button" class="jhs-btn gfriends-image-item-wrapper" aria-pressed="false">');
         expect(avatar).toContain('candidate.attr("aria-pressed", "true")');
-        expect(avatar).toContain('content: r[0]');
+        expect(avatar).toContain('content: root[0]');
         expect(avatar).not.toContain("translateY(-4px)");
         expect(avatar).not.toContain("scale(1.02)");
     });

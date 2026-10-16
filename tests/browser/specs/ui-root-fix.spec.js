@@ -49,7 +49,8 @@ for(const theme of ["light","dark"]){
     await page.getByRole('menuitem',{name:'编辑资料'}).click(); await expect(page.locator('.layui-layer-title').last()).toContainText('编辑');
     await page.keyboard.press('Escape'); await page.locator('#nvViewList').click(); await expect(page.locator('#nv-grid .nv-card')).toHaveCount(60);
     const card=page.locator('#nv-grid .nv-card').first(); const inset=await card.evaluate(node=>node.querySelector('.nv-card__cover').getBoundingClientRect().left-node.getBoundingClientRect().left);
-    expect(inset).toBeGreaterThanOrEqual(12); await card.locator('.nv-select').check(); await contained(page.locator('.newVideoToolBox')); await capture(page,info,`new-works-${theme}`);
+    expect(inset).toBeGreaterThanOrEqual(12); await card.locator('.nv-select').check(); await contained(page.locator('.newVideoToolBox'));
+    await page.mouse.move(0,0); await expect(page.getByRole('tooltip')).toHaveCount(0); await capture(page,info,`new-works-${theme}`);
     await page.locator('#nv-pagination-bar').scrollIntoViewIfNeeded(); await expect(page.locator('#nv-pagination-bar')).toBeInViewport({ratio:1});
     await page.keyboard.press('Escape'); await expect(page.locator('body > .jhs-owned-popover')).toHaveCount(0);
   });

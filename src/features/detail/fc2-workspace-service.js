@@ -247,7 +247,7 @@ export class Fc2WorkspaceService {
             }
         };
         hubButton.on(`click${context.namespace}`, () => void context.openMagnetHub?.());
-        this.getDetailStateController().bind({ root: context.root, layerIndex: context.layerIndex ?? null, carNum: context.carNum, activityType: "fc2-state", getRecord: () => ({ carNum: context.carNum, url: context.url, fc2Source: context.source, names: context.root.find('[data-jhs-role="actress-data"]').text(), publishTime: context.root.find('[data-jhs-role="publish-time"]').text() }) });
+        this.getDetailStateController().bind({ root: context.root, layerIndex: context.layerIndex ?? null, carNum: context.carNum, activityType: "fc2-state", isActive: () => context.isAlive(), getRecord: () => ({ carNum: context.carNum, url: context.url, fc2Source: context.source, names: context.root.find('[data-jhs-role="actress-data"]').text(), publishTime: context.root.find('[data-jhs-role="publish-time"]').text() }) });
         "123av" === context.source ? void this.load123AvDetail(context) : void this.loadNativeDetail(context);
         this.mountFc2OtherSites(context, sitesGroup, this.featureExternalSitesAdapter);
         this.loadFc2Screenshot(context);

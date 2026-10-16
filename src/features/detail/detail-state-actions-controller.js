@@ -23,20 +23,20 @@ export class DetailStateActionsController {
 
     getStateBinding(root = this.page.ui.document) {
         const info = this.page.readPageInfo();
-        return { root, layerIndex: null, carNum: normalizeCarNum(info.carNum), getRecord: () => this.getStateRecord(), activityType: "detail-state", selectors: {} };
+        return { root, layerIndex: null, carNum: normalizeCarNum(info.carNum), getRecord: () => this.getStateRecord(), activityType: "detail-state", selectors: {}, scope: this.scope };
     }
 
     /** @param {{root?: any, carNum: unknown}} options */
     bind({ root = this.page.ui.document, carNum }) {
         this.scope.assertActive();
-        const binding = this.stateController.bind({ root, carNum, activityType: "detail-state", getRecord: () => this.getStateRecord() });
+        const binding = this.stateController.bind({ root, carNum, activityType: "detail-state", getRecord: () => this.getStateRecord(), scope: this.scope });
         const $ = this.page.ui.jquery;
         this.scope.addCleanup(() => $(root).find("#filterBtn,#favoriteBtn,#hasDownBtn,#hasWatchBtn").off(".jhsDetailState"));
         return binding;
     }
 
     /** @param {unknown} carNum */
-    showStatus(carNum) { return this.stateController.render({ root: this.page.ui.document, carNum }); }
+    showStatus(carNum) { return this.stateController.render({ root: this.page.ui.document, carNum, scope: this.scope }); }
     /** @param {MouseEvent} event */
     favoriteOne(event) { return this.stateController.requestToggle(this.getStateBinding(), "favorite", event); }
     /** @param {MouseEvent} event */

@@ -70,6 +70,7 @@ export class ListBatchController {
             setProgress(`已扫描 ${value.page} 页 · 匹配 ${value.matched} 项`);
             this.ui.debug(`批量扫描第 ${value.page} 页 · 已扫描 ${value.scanned} · 匹配 ${value.matched}`);
         };
+        let matched = 0, updated = 0, writing = false;
         try {
             const context = await this.getEvaluationContext();
             const selectors = this.hostAdapter?.getListSelectors?.();
@@ -104,9 +105,9 @@ export class ListBatchController {
             }
 
             // Once writes start the cancel button is disabled, matching the 6.5.1 interaction contract.
+            matched = records.length; writing = true;
             this.ui.markWriting(progress);
             setProgress("正在写入，无法取消…");
-            let updated = 0;
             for (let index = 0; index < records.length; index += 75) {
                 const chunk = records.slice(index, index + 75);
                 await this.state.patch(chunk.map((item) => item.carNum), { [stateFlag]: true }, {
@@ -125,7 +126,8 @@ export class ListBatchController {
                 return { cancelled: true };
             }
             this.ui.reportError(error);
-            this.ui.failProgress(progress);
+            const message = writing ? `批量处理未完成：已完成 ${updated} 项，剩余 ${matched - updated} 项未完成` : "批量扫描失败，未写入任何记录，请重试";
+            this.ui.failProgress(progress, message);
             throw error;
         } finally {
             if (isActiveBatchRun(run)) endBatchRun(run);

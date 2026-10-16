@@ -34,6 +34,7 @@ test("new video pagination remains reachable without scrolling through sixty car
         const plugin=window.unsafeWindow.pluginManager.getBean("NewVideoPlugin");
         plugin.featureNewVideoWorkspaceController.state.getNewVideoDecisions=()=>new Promise(resolve=>window.finishNvReload=()=>resolve({}));
     });
+    if (!await page.locator("#reLoad").isVisible()) await page.locator("#nvWorkspaceMore").click();
     await page.locator("#reLoad").click();
     await expect(page.locator("#nv-pagination-bar")).toHaveCount(0);
     await page.waitForFunction(()=>typeof window.finishNvReload==="function");

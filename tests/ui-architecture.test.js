@@ -203,8 +203,13 @@ const listButtons = readTestFile(join(process.cwd(), "src/features/list/list-act
     });
 
     it("waits for Full settings live writes before showing save success", () => {
-        expect(settingPlugin).toContain("await this._fullSettingBinding?.flush?.({ throwOnFailure: true })");
-        expect(settingPlugin).toContain('const result = await saveSettingForm(this.getFormDependencies(), root);');
+        expect(settingPlugin).toContain("const fullBinding = this._fullSettingBinding, cloudBinding = this._cloudSettingBinding;");
+        expect(settingPlugin).toContain("await fullBinding?.flush?.({ throwOnFailure: true })");
+        expect(settingPlugin).toContain("await cloudBinding?.flush?.({ throwOnFailure: true })");
+        const flushAt = settingPlugin.indexOf("await fullBinding?.flush?.");
+        const saveAt = settingPlugin.indexOf("const result = await saveSettingForm(dependencies, root);");
+        expect(saveAt).toBeGreaterThan(flushAt);
+        expect(settingPlugin.indexOf('this.notifications.ok("已保存设置")', saveAt)).toBeGreaterThan(saveAt);
     });
 
     it("uses semantic review and related layouts with safe external text", () => {
@@ -284,7 +289,7 @@ const listButtons = readTestFile(join(process.cwd(), "src/features/list/list-act
         expect(newVideo).toContain("initializeLocalState()");
         expect(newVideo).toContain('getLocal("jhs_newVideoViewMode")');
         expect(newVideo).toContain('setLocal("jhs_newVideoViewMode", mode)');
-        expect(newVideo).toContain('setLocal(AVATAR_SOURCE_INDEX_KEY, n.toString())');
+        expect(newVideo).toContain('setLocal(AVATAR_SOURCE_INDEX_KEY, String(index))');
         expect(newVideo).toContain('getRuntimeService("actressInfo").searchAvatars');
     });
 

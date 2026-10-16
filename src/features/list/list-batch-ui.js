@@ -103,10 +103,22 @@ export class ListBatchUi {
     /** @param {any} progress */
     completeProgress(progress) { this.scheduleRemoval(progress, 1800); }
 
-    /** @param {any} progress */
-    failProgress(progress) {
+    /** @param {any} progress @param {string} [message] */
+    failProgress(progress, message = "批量处理失败，请重试") {
+        this.notifications.error?.(message);
+        if (!progress) return;
+        this.setProgress(progress, message);
         progress?.classList?.add("jhs-batch-progress--error");
-        this.scheduleRemoval(progress, 2500);
+        progress.setAttribute("role", "alert");
+        const cancel = progress.querySelector("#jhs-batch-cancel");
+        if (cancel) { cancel.hidden = true; cancel.disabled = true; }
+        const close = this.document.createElement("button");
+        close.type = "button"; close.className = "jhs-btn jhs-btn--secondary jhs-btn--sm"; close.textContent = "关闭";
+        const dismiss = () => this.removeProgress(progress);
+        close.addEventListener("click", dismiss);
+        const cleanup = this.progressCleanups.get(progress);
+        this.progressCleanups.set(progress, () => { cleanup?.(); close.removeEventListener("click", dismiss); });
+        progress.append(close);
     }
 
     /** @param {any} progress */

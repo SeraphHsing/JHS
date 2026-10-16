@@ -12,7 +12,7 @@ async function registerNewVideoStyles(styles) {
 
 export const newVideoFeature = defineFeature({
     id: "new-video", kind: "feature", disableable: true, sites: ["javdb"], routes: [], startup: "idle",
-    requires: [PORT.style, SERVICE.dialog, SERVICE.events, SERVICE.state, SERVICE.settings, SERVICE.storage, SERVICE.movie, SERVICE.actressInfo, SERVICE.titleKeywords, SERVICE.legacyUtils, SERVICE.legacyStorage, SERVICE.domUi, SERVICE.notifications, SERVICE.clog], contributes: ["discovery.new-video"], providesCommands: ["new-video.open"],
+    requires: [PORT.style, SERVICE.dialog, SERVICE.events, SERVICE.state, SERVICE.settings, SERVICE.profile, SERVICE.storage, SERVICE.movie, SERVICE.actressInfo, SERVICE.titleKeywords, SERVICE.legacyUtils, SERVICE.legacyStorage, SERVICE.domUi, SERVICE.notifications, SERVICE.clog], contributes: ["discovery.new-video"], providesCommands: ["new-video.open"],
     activate: async (/** @type {any} */ deps, /** @type {any} */ runtime) => {
         const id = "discovery.new-video";
         if (!runtime.enabledContributions.includes(id)) return { activeContributions: [], commands: { "new-video.open": () => undefined } };
@@ -33,7 +33,7 @@ export const newVideoFeature = defineFeature({
             plugin = await compatibilityBean.createFeatureService({
                 runtimeServices: {
                     dialog: deps[SERVICE.dialog], storage: deps[SERVICE.storage], actressInfo: deps[SERVICE.actressInfo],
-                    movie: deps[SERVICE.movie], state: deps[SERVICE.state], settings: deps[SERVICE.settings],
+                    movie: deps[SERVICE.movie], state: deps[SERVICE.state], settings: deps[SERVICE.settings], profile: deps[SERVICE.profile],
                     scope: () => runtime.scope,
                 },
                 resolveDependency: (/** @type {string} */ name) => runtime.resolveCompatibilityBean(name),

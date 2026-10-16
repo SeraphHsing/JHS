@@ -1,5 +1,9 @@
 import { OwnedPopover } from "../src/core/owned-popover.js";
-import { renderTaskStatus } from "../src/core/task-status-view.js";
+import { renderTaskStatus, taskStatusView } from "../src/core/task-status-view.js";
+import { formatUiDateTime } from "../src/core/ui-date-time.js";
+import { LifecycleScope } from "../src/core/lifecycle-scope.js";
+import { dismissActiveTooltip } from "../src/core/tooltip-controller.js";
+import { PRODUCT_NAMES } from "../src/core/product-names.js";
 import { readTestFile } from "./helpers/read-test-file.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -36,6 +40,7 @@ function createHarness() {
         TaskPlugin: { getTaskStatusSnapshot: vi.fn(() => ({ state: "idle", completedAt: null, nextAt: null })) }
     };
     const runtimeServices = {
+        profile: Object.assign(new dom.window.EventTarget(), { current: () => "wide" }),
         actressInfo: { placeholderUrl: vi.fn(() => "https://c0.jdbstatic.com/images/actor_unknow.jpg"), getAvatarSources: vi.fn(() => []) },
         storage: { getLocal: vi.fn(() => null), setLocal: vi.fn() },
         state: stateService,
@@ -46,7 +51,7 @@ function createHarness() {
     dom.window.ImageHoverPreview = ImageHoverPreview;
     const renderStateView = (container, options) => (container.empty().append($("<div></div>").text(options.title || "")), container);
     const context = vm.createContext({
-        OwnedPopover, renderTaskStatus, console, Date, URL, Object, Array, Map, Set, Promise, Number, String, Math, FEATURE_ICONS, getIcon,
+        OwnedPopover, renderTaskStatus, taskStatusView, formatUiDateTime, LifecycleScope, dismissActiveTooltip, PRODUCT_NAMES, console, Date, URL, Object, Array, Map, Set, Promise, Number, String, Math, FEATURE_ICONS, getIcon,
         window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage,
         $, BasePlugin, ImageHoverPreview, storageManager, stateService, renderStateView,
         JHS_Z_INDEX: { dialogHoverPreview: 999999992 },
@@ -59,7 +64,7 @@ function createHarness() {
         mapLimit: async (items, limit, worker) => Promise.all(items.map(worker)),
         escapeHtml: value => String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]),
         utils: { genericSort: items => [...items], htmlTo$dom: html => $(new JSDOM(html).window.document), q: vi.fn() },
-        gmHttp: { get: vi.fn() }, JhsSelect: { setValue: vi.fn(), enhance: vi.fn() },
+        gmHttp: { get: vi.fn() }, JhsSelect: { setValue: vi.fn(), setVisible: vi.fn(), enhance: vi.fn() },
         show: { info: vi.fn(), ok: vi.fn(), error: vi.fn() }, clog: { error: vi.fn(), warn: vi.fn(), log: vi.fn(), debug: vi.fn() },
         jhsEventBus: { on: vi.fn() }, setTimeout, clearTimeout, fetch: vi.fn(), indexedDB: {}, loading: vi.fn(),
         shouldSkipStopped: () => false,
@@ -75,7 +80,7 @@ function createHarness() {
         settings: { snapshot: () => ({ checkNewVideo_ruleTime: 8760 }) },
         movie: runtimeServices.movie,
     });
-    return { plugin, $, actresses, storageManager, stateService, beans, runtimeServices };
+    return { plugin, $, actresses, storageManager, stateService, beans, runtimeServices, dom, context };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -379,5 +384,163 @@ describe("new video workspace snapshot", () => {
         expect(runtimeServices.actressInfo.uncollect).toHaveBeenCalledOnce();
         expect(storageManager.removeFavoriteActress).toHaveBeenCalledOnce();
         expect(plugin.events.emit).toHaveBeenCalledOnce();
+    });
+});
+
+
+function installOwnedDialogs(harness) {
+    const { plugin, $ } = harness, dialogs = new Map(); let nextId = 0;
+    const dialog = {
+        open: vi.fn(options => {
+            // Real Layer 1.0.9 treats object content as a jQuery value and calls parents().
+            if (typeof options.content === "object") {
+                if (!options.content.parents("body").length) throw new TypeError("Layer requires mounted jQuery content");
+                options.content.show();
+            }
+            const id = ++nextId, root = $('<div class="layui-layer"></div>').attr("id", `layui-layer${id}`).append(options.content).appendTo(plugin.document.body);
+            dialogs.set(id, { options, root }); options.success?.(root, id); return id;
+        }),
+        close: vi.fn(id => { const item = dialogs.get(id); if (!item) return; dialogs.delete(id); item.root.remove(); item.options.end?.(); }),
+    };
+    plugin.runtimeServices.dialog = dialog;
+    plugin.utils.getDialogArea = () => ["600px", "500px"];
+    plugin.utils.getResponsiveArea = value => value;
+    plugin.utils.setupEscClose = vi.fn(); plugin.utils.releaseEscClose = vi.fn();
+    plugin.utils.debounce = fn => Object.assign(fn, { cancel: vi.fn() });
+    return { dialog, dialogs };
+}
+
+describe("new video interaction ownership", () => {
+    it("uses labels for all six editor fields and opens one editor for a repeated actor action", async () => {
+        const harness = createHarness(), { plugin, actresses, dom } = harness, { dialog } = installOwnedDialogs(harness);
+        await plugin.editActress(actresses[0]); await plugin.editActress(actresses[0]);
+        expect(dialog.open).toHaveBeenCalledOnce();
+        const controls = plugin.editor.root.find("input,textarea,select").get();
+        expect(controls).toHaveLength(6);
+        for (const control of controls) expect(control.labels.length, control.id).toBe(1);
+        plugin.dispose(); dom.window.close();
+    });
+    it("cancels the editor request consumer and loading surface on close, ignoring a late result", async () => {
+        const harness = createHarness(), { plugin, actresses, runtimeServices, context, dom } = harness, { dialog } = installOwnedDialogs(harness);
+        let resolveSearch, requestScope; const release = vi.fn(), closeLoading = vi.fn();
+        context.loading.mockReturnValue({ close: closeLoading }); plugin.avatarSources = [{ id: "fixture", name: "Fixture" }];
+        runtimeServices.actressInfo.searchAvatars = vi.fn((_names, _source, { scope }) => { requestScope = scope; scope.ownRequestConsumer({ release }); return new Promise(resolve => resolveSearch = resolve); });
+        await plugin.editActress(actresses[0]);
+        const pending = plugin.searchAvatar(); await plugin.searchAvatar();
+        expect(runtimeServices.actressInfo.searchAvatars).toHaveBeenCalledOnce();
+        dialog.close(plugin.editor.id);
+        expect(requestScope.disposed).toBe(true); expect(release).toHaveBeenCalledOnce(); expect(closeLoading).toHaveBeenCalledOnce();
+        resolveSearch(["https://img.example/late.jpg"]); await pending;
+        expect(dialog.open).toHaveBeenCalledOnce(); expect(plugin.notifications.error).not.toHaveBeenCalled();
+        expect(plugin._editActressRoot).toBeNull(); dom.window.close();
+    });
+    it("allows a replacement search after editing the name and rejects the older response", async () => {
+        const harness = createHarness(), { plugin, actresses, runtimeServices, dom } = harness, { dialog } = installOwnedDialogs(harness);
+        const completions = []; plugin.avatarSources = [{ id: "fixture", name: "Fixture" }];
+        runtimeServices.actressInfo.searchAvatars = vi.fn((_names, _source, { scope }) => new Promise(resolve => completions.push({ resolve, scope })));
+        await plugin.editActress(actresses[0]); const first = plugin.searchAvatar();
+        plugin.editor.root.find("#edit-actress-name").val("Replacement").trigger("input");
+        expect(completions[0].scope.disposed).toBe(true);
+        const second = plugin.searchAvatar(); completions[1].resolve(["https://img.example/new.jpg"]); await second;
+        expect(dialog.open).toHaveBeenCalledTimes(2);
+        expect(dom.window.document.querySelector('.gfriends-selectable-img').getAttribute('src')).toBe("https://img.example/new.jpg");
+        completions[0].resolve(["https://img.example/old.jpg"]); await first;
+        expect(dialog.open).toHaveBeenCalledTimes(2);
+        plugin.dispose(); dom.window.close();
+    });
+    it("releases an orphaned editor and normalizes every native child content node for real Layer", async () => {
+        const harness = createHarness(), { plugin, actresses, runtimeServices, dom } = harness, { dialog, dialogs } = installOwnedDialogs(harness);
+        let finishSearch, requestScope; plugin.avatarSources = [{ id: "fixture", name: "Fixture" }];
+        runtimeServices.actressInfo.searchAvatars = vi.fn((_names, _source, { scope }) => { requestScope = scope; return new Promise(resolve => finishSearch = resolve); });
+        await plugin.editActress(actresses[0]); const editor = plugin.editor;
+        const content = dom.window.document.createElement("div"); content.textContent = "Child content";
+        const child = plugin.openEditorChild(editor, { type: 1, content, title: "Child" });
+        expect(dialog.open.mock.calls.at(-1)[0].content.jquery).toBeDefined();
+        dialogs.get(child.id).root.remove(); await Promise.resolve();
+        expect(child.scope.disposed).toBe(true); expect(plugin.editor).toBe(editor);
+        const pending = plugin.searchAvatar(); dialogs.get(editor.id).root.remove(); await Promise.resolve();
+        expect(requestScope.disposed).toBe(true); expect(plugin.editor).toBeNull();
+        finishSearch(["https://img.example/late.jpg"]); await pending;
+        expect(dialog.open).toHaveBeenCalledTimes(2); expect(plugin.notifications.error).not.toHaveBeenCalled(); dom.window.close();
+    });
+    it("owns candidate image events and the selection close timer with the editor", async () => {
+        vi.useFakeTimers();
+        const harness = createHarness(), { plugin, actresses, runtimeServices, dom, $ } = harness, { dialog, dialogs } = installOwnedDialogs(harness);
+        plugin.avatarSources = [{ id: "fixture", name: "Fixture" }];
+        runtimeServices.actressInfo.searchAvatars = vi.fn(async () => ["https://img.example/chosen.jpg"]);
+        await plugin.editActress(actresses[0]); const editor = plugin.editor; await plugin.searchAvatar();
+        const candidate = $(dom.window.document.querySelector(".gfriends-image-item-wrapper")), image = candidate.find("img");
+        candidate.trigger("click"); expect(editor.root.find("#edit-actress-avatar").val()).toBe("https://img.example/chosen.jpg");
+        expect(vi.getTimerCount()).toBe(1);
+        dialog.close(editor.id);
+        expect(dialogs.size).toBe(0); expect(vi.getTimerCount()).toBe(0);
+        await plugin.editActress({ starId: "replacement", name: "Replacement" });
+        const replacement = plugin.editor;
+        candidate.trigger("click");
+        expect(replacement.root.find("#edit-actress-avatar").val()).toBe("");
+        image.trigger("error"); expect(plugin.notifications.error).not.toHaveBeenCalled();
+        await vi.runAllTimersAsync(); expect(plugin.editor).toBe(replacement);
+        plugin.dispose(); dom.window.close();
+    });
+    it("closes CDN selection and candidates when its owning Feature scope is disposed", async () => {
+        const harness = createHarness(), { plugin, actresses, dom } = harness, { dialogs } = installOwnedDialogs(harness);
+        const featureScope = new LifecycleScope("fixture-new-video"); plugin.runtimeServices.scope = () => featureScope;
+        plugin.avatarSources = [{ id: "fixture", name: "Fixture" }];
+        await plugin.editActress(actresses[0]); plugin.editor.root.find("#select-cdn-btn").trigger("click");
+        expect(dialogs.size).toBe(2); featureScope.dispose();
+        expect(dialogs.size).toBe(0); expect(plugin.editor).toBeNull(); dom.window.close();
+    });
+    it("prevents concurrent saves and never closes a newer editor when an older save completes", async () => {
+        const harness = createHarness(), { plugin, actresses, storageManager, dom } = harness, { dialogs, dialog } = installOwnedDialogs(harness);
+        let finishSave; storageManager.updateFavoriteActress = vi.fn(() => new Promise(resolve => finishSave = resolve)); plugin.events.emit = vi.fn(async () => {});
+        await plugin.editActress(actresses[0]); const old = plugin.editor, oldOptions = dialogs.get(old.id).options;
+        old.root.find("#edit-actress-name").val("Old write"); const pending = oldOptions.yes(old.id); await oldOptions.yes(old.id);
+        expect(storageManager.updateFavoriteActress).toHaveBeenCalledOnce(); dialog.close(old.id);
+        await plugin.editActress({ starId: "new", name: "New editor" }); const current = plugin.editor;
+        finishSave(true); await pending;
+        expect(plugin.editor).toBe(current); expect(dialogs.has(current.id)).toBe(true);
+        expect(plugin.notifications.ok).not.toHaveBeenCalled(); expect(plugin.events.emit).toHaveBeenCalledOnce();
+        plugin.dispose(); dom.window.close();
+    });
+    it("releases editor work immediately but retains Layer object content until its animated end", async () => {
+        vi.useFakeTimers();
+        const harness = createHarness(), { plugin, actresses, dom } = harness, { dialog, dialogs } = installOwnedDialogs(harness);
+        dialog.close.mockImplementation(id => {
+            const item = dialogs.get(id);
+            if (!item) return;
+            setTimeout(() => {
+                expect(item.options.content[0].isConnected).toBe(true);
+                dialogs.delete(id); item.root.remove(); item.options.end?.();
+            }, 200);
+        });
+        await plugin.editActress(actresses[0]); const editor = plugin.editor;
+        const content = dom.window.document.createElement("div"), child = plugin.openEditorChild(editor, { type: 1, content, title: "Candidate" });
+        plugin.closeActressEditor();
+        expect(editor.scope.disposed).toBe(true); expect(child.scope.disposed).toBe(true);
+        expect(content.isConnected).toBe(true); expect(editor.root[0].isConnected).toBe(true);
+        await vi.advanceTimersByTimeAsync(200);
+        expect(content.isConnected).toBe(false); expect(editor.root[0].isConnected).toBe(false);
+        expect(dialogs.size).toBe(0); dom.window.close();
+    });
+    it("keeps filters and commands on the same controls through profile and view changes", async () => {
+        const harness = createHarness(), { plugin, runtimeServices, dom, $ } = harness, { dialogs, dialog } = installOwnedDialogs(harness);
+        let profile = "compact"; runtimeServices.profile.current = () => profile;
+        plugin.getTaskButtonTips = vi.fn(async () => ({ favorite: "", newVideo: "" })); plugin.reloadNewVideoWorkspaceData = vi.fn(async () => {}); plugin.renderCurrentView = vi.fn();
+        await plugin.openDialog(); const root = plugin.nvWorkspaceRoot;
+        expect(root.find(".newVideoToolBox").attr("data-jhs-compact")).toBe("true");
+        expect(root.find("#nv-filter-panel").prop("hidden")).toBe(true); expect(root.find("#jhs-task-status-list").prop("hidden")).toBe(true);
+        const filter = root.find("#nvDecisionFilter")[0]; root.find("#nvDecisionFilter").val("ignored");
+        plugin.setViewMode("list");
+        expect(root.find(".jhs-new-video-toolbar__actions #checkNewVideo")).toHaveLength(1);
+        expect(root.find(".jhs-new-video-more__menu #checkFavoriteActress")).toHaveLength(1);
+        root.find("#nvFilterToggle").trigger("click"); expect(root.find("#nv-filter-panel").prop("hidden")).toBe(false);
+        expect(root.find("#nvFilterToggle").attr("aria-label")).toContain("决策：已忽略");
+        profile = "wide"; runtimeServices.profile.dispatchEvent(new dom.window.Event("profile.changed"));
+        expect(root.find(".jhs-new-video-toolbar__actions button")).toHaveLength(4);
+        profile = "compact"; runtimeServices.profile.dispatchEvent(new dom.window.Event("profile.changed"));
+        expect(root.find("#nvDecisionFilter")[0]).toBe(filter); expect($(filter).val()).toBe("ignored");
+        expect(root.find("#nv-filter-panel").prop("hidden")).toBe(false);
+        const persisted = runtimeServices.storage.setLocal.mock.calls.map(call => call[0]); expect(persisted).toEqual(["jhs_newVideoViewMode"]);
+        dialog.close(plugin.nvDialogId); expect(dialogs.size).toBe(0); dom.window.close();
     });
 });

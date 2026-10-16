@@ -1,11 +1,12 @@
 // @ts-check
+import { formatUiDateTime } from "./ui-date-time.js";
 
 /** Display committed schedules without interpreting retry sentinels as regular execution times. @param {string} name @param {any} snapshot @param {Record<string, any>} settings */
 export function taskStatusView(name, snapshot, settings = {}) {
     const keys = {blacklist:"enableCheckBlacklist", favoriteActress:"enableCheckFavoriteActress", newVideo:"enableCheckNewVideo"};
     const names = {blacklist:"黑名单", favoriteActress:"演员同步", newVideo:"新作品"};
     const key = keys[/** @type {keyof typeof keys} */ (name)], enabled = settings[key] !== "no" && settings[key] !== false;
-    const format = (/** @type {number | null} */ value) => value && Number.isFinite(value) ? new Date(value).toLocaleString("zh-CN", { hour12:false }) : "无";
+    const format = formatUiDateTime;
     let status = "正常", next = "未计划", nextLabel = "下次检查";
     if (!enabled) { status = "已停用"; next = "已停用"; }
     else if (!snapshot || snapshot.ready === false) status = "未就绪";

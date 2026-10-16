@@ -40,8 +40,8 @@ describe("capability availability (无死按钮)", () => {
     });
 
     it("new-video edit dialog is scoped to its layer root", () => {
-        expect(newVideo).toContain("editRoot = this.jquery(e);");
-        expect(newVideo).toContain("editRoot.find(\"#edit-actress-avatar\")");
+        expect(newVideo).toContain("this.isEditorCurrent(editor)");
+        expect(newVideo).toContain('editor.root.find("#edit-actress-avatar")');
         expect(newVideo).not.toContain('this.jquery("#edit-actress-avatar")');
         expect(newVideo).not.toContain('this.jquery("#edit-actress-name")');
     });

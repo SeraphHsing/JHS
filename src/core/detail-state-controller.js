@@ -11,7 +11,7 @@ const DETAIL_STATE_BUTTONS = {
 };
 
 /** @typedef {keyof import("./state-model.js").StateFlags} DetailStateFlag */
-/** @typedef {{root: any, closeRoot?: any, layerIndex: number | null, carNum: string | null, getRecord: any, activityType: string, selectors: Partial<Record<DetailStateFlag, string>>}} DetailStateConfig */
+/** @typedef {{root: any, closeRoot?: any, layerIndex: number | null, carNum: string | null, getRecord: any, activityType: string, selectors: Partial<Record<DetailStateFlag, string>>, isActive?: () => boolean, scope?: {disposed: boolean}, reading?: Set<string>}} DetailStateConfig */
 
 /** @returns {Array<[DetailStateFlag, {selector: string, inactive: () => string, active: () => string}]>} */
 function stateButtonEntries() {
@@ -37,46 +37,67 @@ export class DetailStateController {
             jquery: ui.jquery ?? ((value) => $(value)),
         };
     }
-    /** @param {{root?: any, closeRoot?: any, layerIndex?: number | null, carNum: unknown, getRecord?: any, activityType?: string, selectors?: Partial<Record<DetailStateFlag, string>>}} options */
-    bind({ root = document, closeRoot = root, layerIndex = null, carNum, getRecord = null, activityType = "detail-state", selectors = {} }) {
+    /** @param {{root?: any, closeRoot?: any, layerIndex?: number | null, carNum: unknown, getRecord?: any, activityType?: string, selectors?: Partial<Record<DetailStateFlag, string>>, isActive?: () => boolean, scope?: {disposed: boolean}}} options */
+    bind({ root = document, closeRoot = root, layerIndex = null, carNum, getRecord = null, activityType = "detail-state", selectors = {}, isActive, scope }) {
         const $ = this.ui.jquery;
-        const config = { root, closeRoot, layerIndex, carNum: normalizeCarNum(carNum), getRecord, activityType, selectors };
+        const config = { root, closeRoot, layerIndex, carNum: normalizeCarNum(carNum), getRecord, activityType, selectors, isActive, scope, reading: new Set() };
         for (const [flag, definition] of stateButtonEntries()) {
             const selector = selectors[flag] || definition.selector;
             $(root).find(selector).off("click.jhsDetailState").on("click.jhsDetailState", ((/** @type {MouseEvent} */ event) => {
                 event.preventDefault(), event.stopPropagation(), void this.requestToggle(config, flag, event);
             }));
         }
-        void this.render(config);
+        void this.render(config).catch(error => { if (this.isActive(config)) { this.ui.logError("详情状态读取失败", error); this.ui.reportError("状态读取失败，请重试"); } });
         return config;
+    }
+    /** @param {{root?: any, isActive?: () => boolean, scope?: {disposed: boolean}}} config */
+    isActive(config) {
+        const root = config.root?.jquery ? config.root[0] : config.root;
+        return !config.scope?.disposed && config.isActive?.() !== false && root?.isConnected !== false;
     }
     /** @param {DetailStateConfig} config @param {DetailStateFlag} flag @param {MouseEvent | null} [event] */
     async requestToggle(config, flag, event = null) {
         if (!config.carNum) return void this.ui.reportError("番号不可用，无法更新状态");
-        const current = await this.ui.readState(config.carNum), flags = normalizeStateFlags(current?.stateFlags);
-        if ("blocked" === flag && !flags.blocked) return void this.ui.confirm(event, `屏蔽「${escapeConfirmationLabel(config.carNum)}」？`, (() => this.toggle(config, flag, event)), { confirmText: "屏蔽" });
-        return this.toggle(config, flag, event);
+        if (!this.isActive(config) || config.reading?.has(flag)) return;
+        config.reading?.add(flag);
+        try {
+            const current = await this.ui.readState(config.carNum), flags = normalizeStateFlags(current?.stateFlags);
+            if (!this.isActive(config)) return;
+            if ("blocked" === flag && !flags.blocked) return void this.ui.confirm(event, `屏蔽「${escapeConfirmationLabel(config.carNum)}」？`, (() => this.isActive(config) && this.toggle(config, flag, event)), { confirmText: "屏蔽" });
+            return await this.toggle(config, flag, event);
+        } catch (error) {
+            if (this.isActive(config)) { this.ui.logError("详情状态读取失败", error); this.ui.reportError("状态读取失败，请重试"); }
+        } finally { config.reading?.delete(flag); }
     }
     /** @param {DetailStateConfig} config @param {DetailStateFlag} flag @param {MouseEvent | null} [event] */
     async toggle(config, flag, event = null) {
         if (!config.carNum) return void this.ui.reportError("番号不可用，无法更新状态");
+        if (!this.isActive(config)) return;
         const $ = this.ui.jquery;
         const selector = config.selectors[flag] || DETAIL_STATE_BUTTONS[flag].selector, button = event?.currentTarget ? $(event.currentTarget) : $(config.root).find(selector);
         if (button.prop("disabled")) return;
         button.prop("disabled", !0).attr("aria-busy", "true");
+        let committed = false;
         try {
             const record = "function" == typeof config.getRecord ? await config.getRecord() : config.getRecord || { carNum: config.carNum };
-            await this.stateService.toggle(config.carNum, flag, { type: config.activityType, record }), await this.render(config), await this.ui.closePage({ layerIndex: config.layerIndex, root: config.closeRoot || config.root });
+            if (!this.isActive(config)) return;
+            await this.stateService.toggle(config.carNum, flag, { type: config.activityType, record });
+            committed = true;
+            if (!this.isActive(config)) return;
+            await this.render(config);
+            if (this.isActive(config)) await this.ui.closePage({ layerIndex: config.layerIndex, root: config.closeRoot || config.root });
         } catch (error) {
-            this.ui.logError("详情状态更新失败", error), this.ui.reportError("状态更新失败，请重试");
+            this.ui.logError(committed ? "详情状态已保存，界面更新失败" : "详情状态更新失败", error);
+            if (this.isActive(config)) this.ui.reportError(committed ? "状态已保存，请重新打开详情" : "状态更新失败，请重试");
         } finally {
             button[0]?.isConnected && button.prop("disabled", !1).removeAttr("aria-busy");
         }
     }
-    /** @param {{root?: any, carNum: unknown, selectors?: Partial<Record<DetailStateFlag, string>>}} options */
-    async render({ root = document, carNum, selectors = {} }) {
+    /** @param {{root?: any, carNum: unknown, selectors?: Partial<Record<DetailStateFlag, string>>, isActive?: () => boolean, scope?: {disposed: boolean}}} options */
+    async render({ root = document, carNum, selectors = {}, isActive, scope }) {
         const $ = this.ui.jquery;
         const record = await this.ui.readState(/** @type {string} */ (normalizeCarNum(carNum))), flags = normalizeStateFlags(record?.stateFlags);
+        if (!this.isActive({root, isActive, scope})) return flags;
         for (const [flag, definition] of stateButtonEntries()) {
             const button = $(root).find(selectors[flag] || definition.selector), active = !!flags[flag];
             button.attr("aria-pressed", String(active)).each((/** @type {number} */ _, /** @type {HTMLElement} */ element) => $(element).find("span").first().text(active ? definition.active() : definition.inactive()));

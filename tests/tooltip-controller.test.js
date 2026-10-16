@@ -33,6 +33,25 @@ describe("owned tooltips", () => {
         tooltip.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
         vi.advanceTimersByTime(120); expect(tooltip.isConnected).toBe(false);
     });
+    it("does not open or retain an ancestor card tooltip when its checkbox receives focus", () => {
+        const card = document.createElement("div");
+        card.className = "jhs-ui"; card.title = "影片卡片的长说明";
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox";
+        card.append(checkbox); document.body.append(card);
+        checkbox.focus();
+        expect(document.querySelector("[role=tooltip]")).toBeNull();
+        card.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })); vi.advanceTimersByTime(50);
+        expect(document.querySelector("[role=tooltip]").textContent).toBe("影片卡片的长说明");
+        card.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+        vi.advanceTimersByTime(120);
+        expect(document.querySelector("[role=tooltip]")).toBeNull();
+    });
+    it("retains keyboard help on a label's associated control", () => {
+        const label = document.createElement("label"); label.className = "jhs-ui"; label.title = "选项说明";
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox";
+        label.append(checkbox); document.body.append(label); checkbox.focus();
+        expect(document.querySelector("[role=tooltip]").textContent).toBe("选项说明");
+    });
     it("dismisses the tooltip before the containing menu on successive Escape presses", () => {
         const owned = document.querySelector("#owned"), menu = document.querySelector("#menu"), popover = new OwnedPopover(owned, menu);
         popover.open(owned); expect(document.querySelector("[role=tooltip]")).not.toBeNull();

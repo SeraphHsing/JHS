@@ -1,9 +1,11 @@
 import { readTestFile } from "./helpers/read-test-file.js";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { JSDOM } from "jsdom";
+import jqueryFactory from "jquery";
+import { openFileListDialog } from "../src/plugins/backup/setting-backup.js";
 
 const blacklist = readTestFile(join(process.cwd(), "src/features/library/blacklist-workspace-controller.js"), "utf8");
-const settingBackup = readTestFile(join(process.cwd(), "src/plugins/backup/setting-backup.js"), "utf8");
 const history = readTestFile(join(process.cwd(), "src/features/library/history-dialog-controller.js"), "utf8");
 const historyStyles = readTestFile(join(process.cwd(), "src/features/library/history-styles.js"), "utf8");
 
@@ -26,9 +28,18 @@ describe("layered dialog DOM ownership", () => {
     });
 
     it("scopes the WebDAV file-list table to its layer element", () => {
-        const open = methodBody(settingBackup, "function openFileListDialog(e, t, n, folderName, showDiffPreviewFn, dialog, dependencies) {", "async function exportSettingData");
-        expect(open).toContain('$(a).find(".jhs-table-dialog__content")');
-        expect(open).not.toContain('Tabulator, "#table-container"');
+        const dom = new JSDOM('<body><div id="table-container" data-foreign="true"></div></body>'), $ = jqueryFactory(dom.window), targets = [];
+        let options, root;
+        const dialog = { open(value) { options = value; root = dom.window.document.createElement("section"); root.innerHTML = value.content; dom.window.document.body.append(root); value.success(root); return 1; }, close() {} };
+        const Table = class { constructor(target) { targets.push(target); } destroy() {} };
+        openFileListDialog([], {}, "WebDAV", "JHS", () => {}, dialog, {
+            jquery: $, document: dom.window.document, window: dom.window,
+            utilities: { isMobileMode: () => false, getResponsiveArea: () => [] },
+            legacyStorage: {}, notifications: {}, logger: {}, domUi: { tableConstructor: Table },
+        });
+        expect(targets).toEqual([root.querySelector(".jhs-table-dialog__content")]);
+        expect(targets[0]).not.toBe(dom.window.document.querySelector('[data-foreign="true"]'));
+        options.end(); dom.window.close();
     });
 
     it("scopes History dialog CSS under the dialog root class", () => {
