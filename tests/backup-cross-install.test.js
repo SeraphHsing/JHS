@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StorageManager } from "../src/core/storage.js";
+import { CURRENT_DATA_VERSION } from "../src/core/constants.js";
+import { SettingsService } from "../src/services/settings-service.js";
+import { readDetailShortcuts } from "../src/core/detail-shortcuts.js";
 
 function createStorage(initialSetting) {
     const data = new Map([["data_version", 2], ["setting", { ...initialSetting }]]);
@@ -25,6 +28,29 @@ function createStorage(initialSetting) {
 
 describe("portable backup cross-install restore", () => {
     afterEach(() => vi.unstubAllGlobals());
+
+    it("retains shortcut settings through reload, portable import and restore, rejecting future formats", async () => {
+        vi.stubGlobal("utils", { getNowStr: () => "2026-10-17 00:00:00" });
+        vi.stubGlobal("clog", { log: vi.fn(), warn: vi.fn() });
+        vi.stubGlobal("window", { stateService: null });
+        const source = createStorage({}), destination = createStorage({});
+        const shortcuts = { favorite: { code: "KeyF", alt: true } };
+        const storage = { get: key => source.forage.getItem(key), set: (key, value) => source.forage.setItem(key, value) };
+        const settings = new SettingsService(storage);
+        await settings.set("detailShortcuts", shortcuts);
+        const reloaded = new SettingsService(storage);
+        await reloaded.load();
+        expect(readDetailShortcuts(reloaded.snapshot().detailShortcuts).favorite.code).toBe("KeyF");
+        const backup = await source.exportData();
+        await destination.importData(backup);
+        expect(destination.data.get("setting").detailShortcuts).toEqual(shortcuts);
+        destination.data.set("snapshots", [{ id: "shortcuts", data: { setting: backup.setting } }]);
+        destination.data.set("setting", {});
+        await destination.restoreSnapshot("shortcuts");
+        expect(destination.data.get("setting").detailShortcuts).toEqual(shortcuts);
+        await expect(destination.importData({ data_version: CURRENT_DATA_VERSION + 1, setting: {} })).rejects.toThrow("数据来自更新版本");
+        expect(destination.data.get("setting").detailShortcuts).toEqual(shortcuts);
+    });
 
     it("exports A data and restores it on B while retaining B WebDAV credentials", async () => {
         vi.stubGlobal("utils", { getNowStr: () => "2026-09-26 00:00:00" });

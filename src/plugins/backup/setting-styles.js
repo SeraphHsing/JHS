@@ -36,9 +36,10 @@ export function buildSettingCss(containerWidth, containerColumns, isJavBus, isJa
             [data-jhs-native-recommendations]:not(.tile-images) { grid-template-columns:repeat(var(--jhs-recommendation-columns, ${containerColumns}), minmax(0,1fr)); }
         `;
     }
-    return `
-            <style>
-                ${base}
+    return `<style>${base}${SETTINGS_STYLES}</style>`;
+}
+
+export const SETTINGS_STYLES = `
                 .nav-btn::after {
                     content:none !important;
                 }
@@ -433,6 +434,4 @@ export function buildSettingCss(containerWidth, containerColumns, isJavBus, isJa
                 input[type="checkbox"]:disabled {
                     cursor: not-allowed !important;
                 }
-            </style>
-        `;
-}
+`;

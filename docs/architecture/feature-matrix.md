@@ -4,6 +4,8 @@
 
 `all` 表示 Feature manifest 未限制该字段；Contribution catalog 仍会进一步限定站点、路由和 Surface。下表按 catalog 顺序列出，修改 manifest 时应同步核对。
 
+`detail.shortcuts` 由 Detail Feature 所有；普通详情与 FC2 工作区在各自实例内挂载共享控制器。Contribution 资格包含列表上的 FC2 弹窗，但不会因此在列表启动整个 Detail Feature。配置 `detailShortcuts` 由 SettingsService 持久化，默认全部留空；设置入口为“列表与详情 → 鉴定快捷键”。
+
 | Feature | Kind | Sites | Routes | Startup | Contributions |
 | --- | --- | --- | --- | --- | --- |
 | `settings-effects` | system | all | all | eager | — |
@@ -12,7 +14,7 @@
 | `diagnostics` | system | all | all | on-command | — |
 | `responsive-shell` | system | javdb, javbus | all | idle | `responsive-shell.bottom-bar` |
 | `stats` | system | javdb, javbus | all | idle | `stats.dashboard` |
-| `detail` | feature | javdb, javbus | detail, owned-detail | eager | `detail.javdb-native`, `detail.workspace`, `detail.page-state-actions`, `detail.javdb-preview`, `detail.javbus-preview`, `detail.reviews`, `detail.related`, `detail.native-magnets`, `detail.screenshot` |
+| `detail` | feature | javdb, javbus | detail, owned-detail | eager | `detail.javdb-native`, `detail.workspace`, `detail.page-state-actions`, `detail.shortcuts`, `detail.javdb-preview`, `detail.javbus-preview`, `detail.reviews`, `detail.related`, `detail.native-magnets`, `detail.screenshot` |
 | `fc2-workspace` | feature | javdb | list, detail, owned-detail | eager | `detail.fc2-owned` |
 | `list` | feature | javdb, javbus | list | eager | `list.core`, `list.auto-page`, `detail.fc2-navigation`, `list.fold-category`, `list.actions`, `detail.javbus-images`, `detail.cover-state-actions` |
 | `library` | feature | javdb, javbus | all | eager | `library.history`, `library.keyword-filter`, `library.state-actions`, `library.blacklist`, `library.favorite-actresses` |

@@ -10,6 +10,7 @@ import { JAVBUS_PREVIEW_STYLES, JavBusPreviewController } from "./javbus-preview
 import { DETAIL_MAGNET_FILTER_STYLES, MagnetFilterController } from "./magnet-filter-controller.js";
 import { JAVDB_PREVIEW_STYLES, JavDbPreviewController } from "./javdb-preview-controller.js";
 import { DetailPageActionsController } from "./detail-page-actions-controller.js";
+import { DETAIL_SHORTCUT_STYLES, DetailShortcutController } from "./detail-shortcut-controller.js";
 
 /** @param {any} runtime @param {string} contributionId @param {() => Promise<boolean> | boolean} start */
 async function startOptionalDetailContribution(runtime, contributionId, start) {
@@ -24,7 +25,7 @@ async function startOptionalDetailContribution(runtime, contributionId, start) {
 export default defineFeature({
     id: "detail", kind: "feature", disableable: true, sites: ["javdb", "javbus"], routes: ["detail", "owned-detail"], startup: "eager",
     requires: [PORT.host, PORT.style, SERVICE.movie, SERVICE.review, SERVICE.related, SERVICE.magnet, SERVICE.screenshot, SERVICE.state, SERVICE.events, SERVICE.domUi, SERVICE.settings, SERVICE.notifications, SERVICE.storage, SERVICE.clipboard, SERVICE.dialog, SERVICE.subtitle],
-    contributes: ["detail.javdb-native", "detail.workspace", "detail.page-state-actions", "detail.javdb-preview", "detail.javbus-preview", "detail.reviews", "detail.related", "detail.native-magnets", "detail.screenshot"],
+    contributes: ["detail.javdb-native", "detail.workspace", "detail.page-state-actions", "detail.shortcuts", "detail.javdb-preview", "detail.javbus-preview", "detail.reviews", "detail.related", "detail.native-magnets", "detail.screenshot"],
     providesCommands: [],
     activate: async (/** @type {any} */ deps, /** @type {any} */ runtime) => {
         if (runtime.route === "owned-detail") {
@@ -39,7 +40,7 @@ export default defineFeature({
             : null;
         const pageActions = pageActionsController?.getFeatureStateActionsAdapter() ?? null;
         const workspaceUi = runtime.enabledContributions.includes("detail.workspace") ? deps[SERVICE.domUi] : null;
-        const featureActivatedContributions = new Set(["detail.native-magnets", "detail.javdb-preview", "detail.javbus-preview", "detail.reviews", "detail.related", "detail.screenshot"]);
+        const featureActivatedContributions = new Set(["detail.shortcuts", "detail.native-magnets", "detail.javdb-preview", "detail.javbus-preview", "detail.reviews", "detail.related", "detail.screenshot"]);
         const controllerContributions = runtime.enabledContributions.filter((/** @type {string} */ id) => !featureActivatedContributions.has(id));
         const controller = new DetailController({
             hostAdapter: deps[PORT.host], scope: runtime.scope, enabledContributions: controllerContributions,
@@ -104,6 +105,17 @@ export default defineFeature({
                 if (index >= 0) activeContributions.splice(index, 1);
                 releasePageActionsBean();
                 runtime.diagnostics.recordError({ source: "detail-feature", featureId: "detail", contributionId: "detail.page-state-actions", message: error instanceof Error ? error.message : String(error) });
+            }
+        }
+        if (pageActionsController?.stateBinding && runtime.enabledContributions.includes("detail.shortcuts")) {
+            const root = deps[PORT.host].document.querySelector("[data-jhs-detail-actions]");
+            if (root) {
+                const shortcuts = new DetailShortcutController({ root, settings: deps[SERVICE.settings], scope: runtime.scope });
+                if (shortcuts.start()) {
+                    runtime.scope.addCleanup(deps[PORT.style].register("jhs-detail-shortcuts-feature", DETAIL_SHORTCUT_STYLES));
+                    shortcuts.prepareFrameFocus(deps[SERVICE.events]);
+                    activeContributions.push("detail.shortcuts");
+                }
             }
         }
         const optionalStarts = [];

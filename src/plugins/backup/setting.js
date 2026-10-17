@@ -20,6 +20,7 @@ import { buildSettingCss } from "./setting-styles.js";
 import { bindSettingControl } from "../../ui/settings/setting-binding-controller.js";
 import { bindSettingRows, renderSettingRow } from "../../ui/settings/setting-control-renderer.js";
 import { LifecycleScope } from "../../core/lifecycle-scope.js";
+import { bindShortcutRecorder, SHORTCUT_RECORDER_STYLES } from "../../ui/settings/shortcut-recorder.js";
 
 export class SettingPlugin {
     /** @param {any} options */
@@ -129,7 +130,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
         let t = (null == e ? void 0 : e.containerWidth) ?? "100";
         this.utils.isMobileMode() && (t = "100");
         let n = this.utils.isMobileMode() ? 1 : (null == e ? void 0 : e.containerColumns) ?? 5;
-        return buildSettingCss(t, n, l, r);
+        return buildSettingCss(t, n, l, r).replace("</style>", `${SHORTCUT_RECORDER_STYLES}</style>`);
     }
     /** @param {import("../../core/lifecycle-scope.js").LifecycleScope} scope @param {{current: () => string}} profile */
     activateFeatureSurface(scope, profile) {
@@ -358,6 +359,7 @@ i(this, "_desktopSettingNavMounted", !1), i(this, "_settingScope", null), i(this
                 this._fullSettingBinding = binding;
                 if (binding) instance.scope.addCleanup(() => binding.dispose());
                 this.bindClick(layerRoot);
+                bindShortcutRecorder({ root: layerRoot[0], settings: this.getRuntimeService("settings"), scope: instance.scope, onManage: () => this.activateSettingPanel(layerRoot, "plugin-mgmt-panel") });
                 layerRoot.find(".side-menu-item.active").attr("aria-current", "page");
                 this.utils.setupEscClose(n), t && t();
                 this.renderTaskStatuses(layerRoot), this.taskStatusUnsubscribe?.(), this.taskStatusUnsubscribe = this.events.on("task-status-changed", (() => this.renderTaskStatuses(layerRoot)));

@@ -25,6 +25,7 @@
     "src/core/icon-license.js",
     "src/core/product-names.js",
     "src/core/detail-state-controller.js",
+    "src/core/detail-shortcuts.js",
     "src/core/dialog-shell.js",
     "src/core/page-scroll-lock.js",
     "src/core/image-viewer.js",

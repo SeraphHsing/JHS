@@ -4,6 +4,7 @@ import { DEFAULT_QUICK_FILTER_OPTIONS } from "../../features/list/list-filters.j
 import { L, r, escapeHtml } from "../../core/constants.js";
 import { PRODUCT_NAMES } from "../../core/product-names.js";
 import { buildQuickSettingsHtml } from "../../ui/settings/setting-control-renderer.js";
+import { DETAIL_SHORTCUT_ACTIONS } from "../../core/detail-shortcuts.js";
 
 /**
  * Build the plugin categories configuration shared between inject and render.
@@ -13,6 +14,7 @@ export function getPluginCategories() {
     /** @type {Record<string, [string, string]>} */
     const pluginMeta = {
         SettingPlugin:["设置中心","core"], StatsPlugin:["统计中心","core"], MobileBottomBarPlugin:["工具栏与移动操作","core"],
+        DetailShortcutPlugin:["详情鉴定快捷键","detail"],
         CompatibilityEnhancementsPlugin:["站点兼容增强","core"], Fc2NavigationPlugin:["FC2 详情导航","list"], DetailWorkspacePlugin:["详情工作区","detail"],
         OneOneFiveMatchPlugin:["115 资源匹配","network"], UnifiedOfflinePlugin:["统一离线提交","network"],
         ListPagePlugin:["列表状态处理","list"], NavBarPlugin:[`${PRODUCT_NAMES.javdb} 导航`,"list"], BusNavBarPlugin:[`${PRODUCT_NAMES.javbus} 导航`,"list"], ListPageButtonPlugin:["列表操作","list"], HighlightMagnetPlugin:["磁力标记","list"], FoldCategoryPlugin:["分类折叠","list"], AutoPagePlugin:["自动翻页","list"], HitShowPlugin:["热播榜单","list"], TOP250Plugin:["TOP 250","list"],
@@ -50,10 +52,12 @@ const LEGACY_PANEL_GROUPS = Object.freeze({
     "backup-panel": "data-panel", "snapshot-panel": "data-panel", "data-tools-panel": "data-panel",
     "network-panel": "advanced-panel", "cache-panel": "advanced-panel", "health-panel": "advanced-panel",
     "plugin-mgmt-panel": "advanced-panel", "more-tools-panel": "advanced-panel",
+    "shortcut-panel": "browse-panel", "detail-shortcut-settings": "browse-panel",
 });
 
 /** Resolve old entry points without changing their destination section. @param {string} [panel] */
 export function resolveSettingPanel(panel = "appearance-panel") {
+    if (panel === "shortcut-panel") panel = "detail-shortcut-settings";
     if (SETTINGS_GROUPS.some((group) => group.id === panel)) return { group: panel, section: null };
     return { group: LEGACY_PANEL_GROUPS[panel] || "appearance-panel", section: LEGACY_PANEL_GROUPS[panel] ? panel : null };
 }
@@ -88,7 +92,8 @@ export function buildSettingDialogHtml(activePanel = "appearance-panel", cacheIt
         "browse-panel": section("list-settings", "列表浏览", selectRow("defaultQuickFilterTab", label("defaultQuickFilterTab", "默认筛选"), DEFAULT_QUICK_FILTER_OPTIONS.map(({ value, label }) => [value, label]), "nextNavigation") + liveHost("list"), "开关立即生效，默认筛选下次进入列表生效") +
             section("card-button-settings", "列表卡片按钮", liveHost("card-buttons"), "立即生效") +
             section("media-settings", "图片与预览", liveHost("media") + selectRow("videoQuality", "默认预览画质", L.filter((item) => item.canSelect).map((item) => [item.quality, item.text])), "开关立即生效，画质需保存") +
-            section("detail-settings", "详情页", liveHost("detail") + selectRow("reviewCount", "评论条数", [10, 20, 30, 40, 50].map((count) => [count, `${count} 条`])) + toggleRow("enableSaveActressCarInfo", "鉴定补录演员", "保存后生效") + numberRow("waitCheckCount", "每次鉴定数量", 1, 20) + row("needClosePageBasic", label("needClosePage", "鉴定后关闭详情页"), '<input type="checkbox" id="needClosePageBasic" class="mini-switch" role="switch">', "鉴定完成后自动关闭", "live"), "评论、演员信息与自动关页立即生效；其他设置需保存"),
+            section("detail-settings", "详情页", liveHost("detail") + selectRow("reviewCount", "评论条数", [10, 20, 30, 40, 50].map((count) => [count, `${count} 条`])) + toggleRow("enableSaveActressCarInfo", "鉴定补录演员", "保存后生效") + numberRow("waitCheckCount", "每次鉴定数量", 1, 20) + row("needClosePageBasic", label("needClosePage", "鉴定后关闭详情页"), '<input type="checkbox" id="needClosePageBasic" class="mini-switch" role="switch">', "鉴定完成后自动关闭", "live"), "评论、演员信息与自动关页立即生效；其他设置需保存") +
+            section("detail-shortcut-settings", "鉴定快捷键", '<p class="jhs-setting-help">适用于普通详情和 FC2 详情。默认未设置，聚焦录制框后按键自动保存；Escape 退出，Tab 切换。部分组合键可能被系统或浏览器占用。</p><p class="jhs-setting-help" data-shortcut-disabled hidden>详情鉴定快捷键已停用，启用后刷新页面生效。</p><div class="jhs-toolbar"><button type="button" class="jhs-btn jhs-btn--secondary" data-shortcut-manage>功能管理</button></div>' + Object.entries(DETAIL_SHORTCUT_ACTIONS).map(([key, action]) => row(`shortcut-${key}`, action.label, `<div class="jhs-shortcut-fields"><input id="shortcut-${key}" class="jhs-field" type="text" readonly placeholder="聚焦后按键录制" data-shortcut-action="${key}" aria-describedby="shortcut-status-${key}"><button type="button" class="jhs-btn jhs-btn--secondary" data-shortcut-clear="${key}" aria-label="清除${action.label}快捷键">清除</button><p id="shortcut-status-${key}" class="jhs-shortcut-feedback" data-shortcut-status="${key}" role="status" aria-live="polite"></p></div>`, "", "live", "stacked")).join(""), "键位立即保存；独立功能开关修改后刷新生效"),
         "filtering-panel": section("filter-panel", "关键词屏蔽", toggleRow("enableTitleSelectFilter", "划词屏蔽") + [ ["reviewKeywordContainer", "评论屏蔽词"], ["filterKeywordContainer", "影片标题屏蔽词"] ].map(([id, title]) => `<div id="${id}">${row(`${id}-input`, title, `<div class="jhs-inline-fields"><input id="${id}-input" type="text" class="keyword-input jhs-field" placeholder="添加屏蔽词"><button type="button" class="jhs-btn add-tag-btn">添加</button></div>`)}<div class="tag-box"></div></div>`).join(""), "保存后生效") + section("magnet-filter-settings", "磁力过滤", liveHost("filter"), "立即生效"),
         "tasks-panel": section("task-panel", "任务状态", '<div id="setting-task-status-list" aria-live="polite"></div>' + numberRow("checkConcurrencyCount", "并发数", 2, 5) + numberRow("checkRequestSleep", "请求间隔（毫秒）", 0, 3000), "任务设置保存后生效") +
             section("setting-blacklist", "黑名单检测", selectRow("enableCheckBlacklist", "任务开关", taskState) + selectRow("checkBlacklist_intervalTime", "检查周期", periods) + selectRow("checkBlacklist_ruleTime", "停更筛选", rules)) +

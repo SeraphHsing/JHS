@@ -5,6 +5,8 @@ import { PORT, SERVICE } from "../../contracts/tokens.js";
 import { Fc2OwnedPageController } from "./fc2-owned-page-controller.js";
 import { Fc2WorkspaceService } from "./fc2-workspace-service.js";
 import { FC2_WORKSPACE_STYLES } from "../../ui/detail/fc2-workspace-styles.js";
+import { DETAIL_SHORTCUT_STYLES, DetailShortcutController } from "./detail-shortcut-controller.js";
+import { LifecycleScope } from "../../core/lifecycle-scope.js";
 
 const contributionId = "detail.fc2-owned";
 const commandId = "detail.fc2.workspace";
@@ -28,6 +30,18 @@ export default defineFeature({
                 ui: deps[SERVICE.domUi], notifications: deps[SERVICE.notifications], logger: deps[SERVICE.clog],
                 ensureFc2Catalog: () => runtime.executeCommand("fc2-catalog.ensure"),
                 scope: () => Promise.resolve(runtime.scope),
+                mountShortcuts: (/** @type {any} */ context) => {
+                    if (!runtime.isContributionEnabled("detail", "detail.shortcuts", "DetailShortcutPlugin")) return;
+                    const scope = new LifecycleScope("fc2-detail-shortcuts");
+                    const releaseOwner = runtime.scope.addCleanup(() => scope.dispose());
+                    scope.addCleanup(releaseOwner);
+                    context.addObserver({ disconnect: () => scope.dispose() });
+                    const shortcuts = new DetailShortcutController({ root: context.root[0], settings: deps[SERVICE.settings], scope, isActive: () => context.isAlive() });
+                    if (shortcuts.start()) {
+                        scope.addCleanup(deps[PORT.style].register(`jhs-fc2-shortcuts-${context.namespace}`, DETAIL_SHORTCUT_STYLES));
+                        runtime.diagnostics.setContribution("detail.shortcuts", true);
+                    }
+                },
             },
             resolveDependency: (name) => runtime.resolveCompatibilityBean(name),
         });

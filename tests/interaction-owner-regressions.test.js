@@ -22,13 +22,24 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); document.body.repla
 
 function settingsHarness() {
     const options=[], registry=new SettingsRegistry(); registerDefaultSettings(registry);
-    const plugin=new SettingPlugin({runtimeServices:{settings:{waitForIdle:async()=>{}}, settingsRegistry:registry,dialog:{open:vi.fn(value=>{options.push(value);return options.length;}),close:vi.fn(id=>options[id-1]?.end())}},capabilities:{},jquery,utilities:{getDialogArea:()=>["700px","600px"],trapFocus:vi.fn(()=>vi.fn()),setupEscClose:vi.fn()},notifications:{},logger:{},legacyStorage:{},events:{on:vi.fn(()=>vi.fn())},document,window});
+    const settings=new SettingsService({get:async()=>({}),set:async()=>{}});
+    const plugin=new SettingPlugin({runtimeServices:{settings, settingsRegistry:registry,dialog:{open:vi.fn(value=>{options.push(value);return options.length;}),close:vi.fn(id=>options[id-1]?.end())}},capabilities:{},jquery,utilities:{getDialogArea:()=>["700px","600px"],trapFocus:vi.fn(()=>vi.fn()),setupEscClose:vi.fn()},notifications:{},logger:{},legacyStorage:{},events:{on:vi.fn(()=>vi.fn())},document,window});
     plugin.renderTaskStatuses=plugin.bindClick=vi.fn(); plugin.activateSettingPanel=vi.fn();
     plugin.hydrateSettingForm=plugin.loadResourceSettings=vi.fn(async()=>{});
     plugin.hydrateLiveSettings=vi.fn(()=>({dispose:vi.fn()}));
     return {plugin,options, mount:async option=>{const root=jquery("<div></div>").append(option.content).appendTo(document.body);await option.success(root,options.indexOf(option)+1);return root;}};
 }
 describe("settings instance and management",()=>{
+    it("keeps shortcut styles inside the vendor style envelope",async()=>{
+        const {plugin}=settingsHarness();plugin.utils.isMobileMode=()=>false;
+        const css=await plugin.initCss();
+        const content=css.replace(/^\s*<style>|<\/style>\s*$/g,"");
+        expect(content).not.toMatch(/<\/?style>/);
+        expect(content).toContain(".jhs-shortcut-fields");
+        const style=document.createElement("style");style.textContent=content;document.head.append(style);
+        expect([...style.sheet.cssRules].some(rule=>rule.selectorText===".jhs-shortcut-fields")).toBe(true);
+        style.remove();
+    });
     it("merges pending full settings requests, opens the latest panel, and ignores an old repeated end",async()=>{
         const {plugin,options,mount}=settingsHarness();
         await Promise.all([plugin.openSettingDialog("appearance-panel"),plugin.openSettingDialog("data-panel")]);

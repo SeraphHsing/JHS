@@ -24,6 +24,16 @@ describe("build-time core styles", () => {
         const source = 'export function style(width) { return `.panel { width:${width}px }`; }';
         expect(await prebuildStyles('src/features/fixture.js', source)).toBe(source);
     });
+    it("compacts only shared settings CSS and preserves per-site runtime dimensions", async () => {
+        const source = (await readFile(new URL('../src/plugins/backup/setting-styles.js', import.meta.url), 'utf8')).replace(/^export \{.*\} from .*;$/m, '');
+        const transformed = await prebuildStyles('src/plugins/backup/setting-styles.js', source);
+        const originalModule = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+        const compiledModule = await import('data:text/javascript;base64,' + Buffer.from(transformed).toString('base64'));
+        expect(source.length - transformed.length).toBeGreaterThan(3000);
+        for (const args of [[80, 4, true, false], [95, 6, false, true], [90, 2, false, false]]) {
+            expect(await compactCss(compiledModule.buildSettingCss(...args))).toBe(await compactCss(originalModule.buildSettingCss(...args)));
+        }
+    });
     it("compacts declared static feature styles while retaining interpolated styles", async () => {
         const source = 'export const STATIC_STYLES = `.parent .child { content:"a  b"; }`; export const DYNAMIC_STYLES = `.item {width:${width}px}`;';
         const output = await prebuildStyles('src/features/discovery/new-video-styles.js', source);

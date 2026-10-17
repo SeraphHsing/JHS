@@ -17,6 +17,8 @@ if (!existsSync(executablePath)) {
 }
 const result = spawnSync(npx, [ "playwright", "test", "specs/visual-regression.spec.js", "specs/ui-evolution.spec.js", "specs/ui-root-fix.spec.js", "--project=desktop-wide", "--project=mobile", "--update-snapshots=none" ], { cwd: browserRoot, stdio: "inherit", shell: process.platform === "win32" });
 if (result.status !== 0) process.exit(result.status ?? 1);
+const shortcutResult = spawnSync(npx, [ "playwright", "test", "specs/detail-shortcuts.spec.js", "--grep=鉴定快捷键布局", "--project=desktop-wide", "--project=mobile", "--update-snapshots=none" ], { cwd: browserRoot, stdio: "inherit", shell: process.platform === "win32" });
+if (shortcutResult.status !== 0) process.exit(shortcutResult.status ?? 1);
 const detailResult = spawnSync(npx, [ "playwright", "test", "specs/detail-settings-regressions.spec.js", "--update-snapshots=none" ], { cwd: browserRoot, stdio: "inherit", shell: process.platform === "win32" });
 if (detailResult.status !== 0) process.exit(detailResult.status ?? 1);
 const menuResult = spawnSync(npx, [ "playwright", "test", "specs/menu-reuse.spec.js", "--update-snapshots=none" ], { cwd: browserRoot, stdio: "inherit", shell: process.platform === "win32" });
